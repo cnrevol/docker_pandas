@@ -1,0 +1,3 @@
+Logging:
+  file: app.log
+  level: DEBUG

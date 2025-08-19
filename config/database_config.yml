@@ -1,0 +1,19 @@
+db_params:
+  db_type: postgresql
+  db_driver: psycopg2
+  username: superset
+  password: superset
+  host: localhost
+  port: 5432
+  database: superset
+  schema: public
+
+# db_params:
+#   db_type: postgresql
+#   db_driver: psycopg2
+#   username: postgres
+#   password: postgres
+#   host: database-1.c5ggcyumksra.us-east-2.rds.amazonaws.com
+#   port: 5432
+#   database: bpod_ifp
+#   schema: ifp_ap_biz
