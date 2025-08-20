@@ -5,7 +5,8 @@ ibm_cos_sdk_core==2.14.3
 pandas==1.5.3
 # psycopg2==2.9.9
 psycopg2_binary==2.9.10
-pydantic==1.9.0
+#pydantic==1.9.0
+pydantic==2.9.2
 python_dateutil==2.9.0.post0
 PyYAML==6.0.2
 Requests==2.32.4
