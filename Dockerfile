@@ -1,5 +1,6 @@
 # ----------------------------------------------------
 # 第一阶段：构建和安装依赖
+# ... (这个阶段不需要改动) ...
 # ----------------------------------------------------
 FROM ubuntu:24.04 AS builder
 
@@ -48,6 +49,10 @@ ENV PYTHONUNBUFFERED=1 \
 COPY --from=builder /usr/src/app /usr/src/app
 WORKDIR /usr/src/app
 COPY . .
+
+# 在最终镜像中升级 setuptools
+# 这会覆盖掉 python:3.11-slim 自带的旧版本
+RUN python -m pip install --no-cache-dir --upgrade setuptools
 
 # 暴露端口
 EXPOSE 8000
