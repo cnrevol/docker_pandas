@@ -4,10 +4,19 @@
 FROM ubuntu:24.04
 
 # ----------------------------------------------------
+# 安装软件源管理工具和 `deadsnakes` PPA
+# ----------------------------------------------------
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        software-properties-common \
+    && rm -rf /var/lib/apt/lists/* && \
+    add-apt-repository ppa:deadsnakes/ppa
+
+# ----------------------------------------------------
 # 安装 Python 3.11 和其他系统依赖
 # ----------------------------------------------------
-# 使用 apt-get 安装 Python 3.11 及其开发库
-# 这里默认 Python 3.11 已经在 24.04 的官方仓库中
+# 再次更新 apt-get 以便加载新的 PPA 包信息
+# 然后安装 Python 3.11 和其他所需的包
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3.11 \
