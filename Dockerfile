@@ -20,7 +20,7 @@ RUN apt-get update && apt-get upgrade -y && \
     && rm -rf /var/lib/apt/lists/*
 
 # 升级 pip 和 setuptools（修复 CVEs）
-RUN python3.11 -m pip install --upgrade pip setuptools==78.1.1
+RUN python3 -m pip install --upgrade pip setuptools==78.1.1
 
 # 复制依赖文件并安装依赖
 COPY requirements.txt .
