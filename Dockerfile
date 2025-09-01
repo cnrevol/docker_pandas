@@ -23,10 +23,6 @@ RUN apt-get update && apt-get install -y \
 # 先复制依赖清单
 COPY requirements.txt .
 
-# 升级 pip + setuptools（修复 CVE-2024-6345 / CVE-2025-47273）
-RUN pip install --upgrade pip \
-    && pip install --upgrade setuptools==78.1.1
-
 # 安装依赖
 RUN pip install --no-cache-dir -r requirements.txt
 

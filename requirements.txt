@@ -20,3 +20,5 @@ fuzzywuzzy==0.18.0
 ibm-cos-sdk==2.14.3
 sendgrid==6.12.4
 paramiko==3.5.1
+ecdsa==0.19.2
+setuptools>=70.0.0
