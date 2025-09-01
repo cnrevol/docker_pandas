@@ -1,31 +1,33 @@
-# 构建阶段
-FROM python:3.11-slim AS builder
+# 使用官方 Python 3.11.16-bullseye 作为基础镜像
+FROM python:3.11.16-bullseye
 
+# 设置环境变量（优化 Python 运行时）
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# 设置工作目录
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y gcc g++ build-essential libpq-dev python3-dev libffi-dev wget \
+# 更新系统并安装构建依赖
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        gcc g++ build-essential \
+        libpq-dev libffi-dev wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir --upgrade pip setuptools==78.1.1 wheel
+# 升级 pip 和 setuptools（修复 CVEs）
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools==78.1.1 wheel
 
+# 复制依赖文件并安装依赖
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
+# 复制应用代码
 COPY . .
 
-# 运行阶段
-FROM python:3.11-slim
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y libpq-dev libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# 只拷贝 site-packages 和 bin，避免覆盖标准库
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-COPY --from=builder /app /app
-
+# 暴露端口
 EXPOSE 8000
 
+# 启动 FastAPI 应用
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
