@@ -1,6 +1,5 @@
 # ----------------------------------------------------
 # 第一阶段：构建和安装依赖
-# 使用一个完整的镜像来执行编译和安装
 # ----------------------------------------------------
 FROM ubuntu:24.04 AS builder
 
@@ -11,8 +10,7 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/* && \
     add-apt-repository ppa:deadsnakes/ppa
 
-# 安装 Python 3.11 和所有构建依赖，包括 linux-libc-dev
-# 注意：这些包只存在于这个阶段，不会进入最终镜像
+# 安装 Python 3.11 和所有构建依赖
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3.11 \
@@ -27,20 +25,22 @@ RUN apt-get update && \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 设置工作目录并安装 Python 依赖
-WORKDIR /app
-COPY requirements.txt .
+# 在第一阶段安装 pip 并安装所有 Python 依赖
+RUN python3.11 -m ensurepip --upgrade
 RUN python3.11 -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# 将依赖安装到 /usr/src/app 目录
+WORKDIR /usr/src/app
+COPY requirements.txt .
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt \
     --target=/usr/src/app
 
 # ----------------------------------------------------
 # 第二阶段：创建精简的最终镜像
-# 只包含运行时所需的文件
 # ----------------------------------------------------
 FROM python:3.11-slim
 
-# 设置环境变量，优化 Python 运行时
+# 设置环境变量
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
