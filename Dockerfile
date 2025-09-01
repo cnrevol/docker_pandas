@@ -16,13 +16,12 @@ RUN apt-get update && \
 # 安装 Python 3.11 和其他系统依赖
 # ----------------------------------------------------
 # 再次更新 apt-get 以便加载新的 PPA 包信息
-# 注意：这里添加了 python3.11-distutils 包
+# 注意：这里我们不再单独安装 distutils，而是直接安装 python3.11-venv
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3.11 \
         python3.11-dev \
         python3.11-venv \
-        python3.11-distutils \
         build-essential \
         libpq-dev \
         libffi-dev \
@@ -37,6 +36,9 @@ RUN apt-get update && \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
+
+# 使用 python3.11-venv 中提供的 ensurepip 模块来安装 pip
+RUN python3.11 -m ensurepip --upgrade
 
 # 升级 pip 和 setuptools
 RUN python3.11 -m pip install --no-cache-dir --upgrade pip setuptools wheel
