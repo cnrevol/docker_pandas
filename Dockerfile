@@ -1,28 +1,40 @@
-FROM ubuntu:24.04
+# 使用轻量级 Python 基础镜像
+FROM python:3.11-slim
 
+# 设置环境变量（优化 Python 运行时）
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
+# 设置工作目录
 WORKDIR /app
 
-# 安装 Python + 基础依赖 + 证书
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-    python3 python3-dev gcc g++ build-essential \
-    libpq-dev libffi-dev wget curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# 安装 pandas/numpy/psycopg2 等需要的构建依赖
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    build-essential \
+    libpq-dev \
+    python3-dev \
+    libffi-dev \
+    wget \
+ && rm -rf /var/lib/apt/lists/*
 
-# 用 get-pip.py 安装 pip
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3
-
-# 固定 setuptools 版本
-RUN python3 -m pip install --no-cache-dir setuptools==78.1.1
-
+# 先复制依赖清单
 COPY requirements.txt .
+
+# 升级 pip + setuptools（修复 CVE-2024-6345 / CVE-2025-47273）
+RUN pip install --upgrade pip \
+    && pip install --upgrade setuptools==78.1.1
+
+# 安装依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
+# 再复制应用代码
 COPY . .
 
+# 暴露容器端口（uvicorn 会监听 8000）
 EXPOSE 8000
+
+# 启动命令（使用 uvicorn 启动 FastAPI）
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
