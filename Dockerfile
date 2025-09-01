@@ -16,12 +16,13 @@ RUN apt-get update && \
 # 安装 Python 3.11 和其他系统依赖
 # ----------------------------------------------------
 # 再次更新 apt-get 以便加载新的 PPA 包信息
-# 然后安装 Python 3.11 和其他所需的包
+# 注意：这里添加了 python3.11-distutils 包
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3.11 \
         python3.11-dev \
         python3.11-venv \
+        python3.11-distutils \
         build-essential \
         libpq-dev \
         libffi-dev \
