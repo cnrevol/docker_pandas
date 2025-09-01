@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y \
     wget \
  && rm -rf /var/lib/apt/lists/*
 
+RUN pip install --no-cache-dir --upgrade pip setuptools>=70.0.0
+
 # 先复制依赖清单
 COPY requirements.txt .
 
