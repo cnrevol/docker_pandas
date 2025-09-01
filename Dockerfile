@@ -1,5 +1,5 @@
 # 使用官方 Python 3.11.16-bullseye 作为基础镜像
-FROM python:3.11.16-bullseye
+FROM python:3.11-bullseye
 
 # 设置环境变量（优化 Python 运行时）
 ENV PYTHONUNBUFFERED=1 \
