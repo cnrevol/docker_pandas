@@ -1,4 +1,4 @@
-# 使用官方 Python 3.11.16-bullseye 作为基础镜像
+# 使用官方 Python 3.11-alpine 作为基础镜像
 FROM python:3.11-alpine
 
 # 设置环境变量（优化 Python 运行时）
@@ -10,13 +10,14 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # 更新系统并安装构建依赖
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-        gcc g++ build-essential \
-        libpq-dev libffi-dev wget \
-    && rm -rf /var/lib/apt/lists/*
+# 注意：这里将 apt-get 替换为 apk
+RUN apk update && apk upgrade && \
+    apk add --no-cache \
+        gcc g++ build-base \
+        postgresql-dev libffi-dev wget \
+    && rm -rf /var/cache/apk/*
 
-# 升级 pip 和 setuptools（修复 CVEs）
+# 升级 pip 和 setuptools
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools==78.1.1 wheel
 
 # 复制依赖文件并安装依赖
