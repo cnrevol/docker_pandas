@@ -1,59 +1,52 @@
 # ----------------------------------------------------
-# 使用官方 Ubuntu 24.04 LTS 作为基础镜像
+# 第一阶段：构建和安装依赖
+# 使用一个完整的镜像来执行编译和安装
 # ----------------------------------------------------
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS builder
 
-# ----------------------------------------------------
 # 安装软件源管理工具和 `deadsnakes` PPA
-# ----------------------------------------------------
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         software-properties-common \
     && rm -rf /var/lib/apt/lists/* && \
     add-apt-repository ppa:deadsnakes/ppa
 
-# ----------------------------------------------------
-# 安装 Python 3.11 和其他系统依赖
-# ----------------------------------------------------
-# 再次更新 apt-get 以便加载新的 PPA 包信息
-# 注意：这里我们不再单独安装 distutils，而是直接安装 python3.11-venv
+# 安装 Python 3.11 和所有构建依赖，包括 linux-libc-dev
+# 注意：这些包只存在于这个阶段，不会进入最终镜像
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         python3.11 \
         python3.11-dev \
         python3.11-venv \
+        python3.11-distutils \
         build-essential \
         libpq-dev \
         libffi-dev \
         wget \
+        linux-libc-dev \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# 设置工作目录并安装 Python 依赖
+WORKDIR /app
+COPY requirements.txt .
+RUN python3.11 -m pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN python3.11 -m pip install --no-cache-dir -r requirements.txt \
+    --target=/usr/src/app
+
 # ----------------------------------------------------
-# 配置环境和安装 Python 依赖
+# 第二阶段：创建精简的最终镜像
+# 只包含运行时所需的文件
 # ----------------------------------------------------
+FROM python:3.11-slim
+
 # 设置环境变量，优化 Python 运行时
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PYTHONDONTWRITEBYTECODE=1
 
-# 使用 python3.11-venv 中提供的 ensurepip 模块来安装 pip
-RUN python3.11 -m ensurepip --upgrade
-
-# 升级 pip 和 setuptools
-RUN python3.11 -m pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# 设置工作目录
-WORKDIR /app
-
-# 复制依赖文件并安装依赖
-COPY requirements.txt .
-RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
-
-# ----------------------------------------------------
-# 复制应用代码和配置启动命令
-# ----------------------------------------------------
-# 复制应用代码
+# 复制第一阶段安装的 Python 依赖和你的应用代码
+COPY --from=builder /usr/src/app /usr/src/app
+WORKDIR /usr/src/app
 COPY . .
 
 # 暴露端口
