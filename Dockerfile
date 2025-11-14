@@ -18,7 +18,7 @@ COPY . .
 # --------------------------------------------------------
 # Stage 2: Ultra-secure runtime image (Chainguard Python 3.11)
 # --------------------------------------------------------
-FROM cgr.dev/chainguard/python:3.11 AS runtime
+FROM cgr.dev/chainguard/python:latest AS runtime
 
 WORKDIR /app
 
