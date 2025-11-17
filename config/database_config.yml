@@ -1,8 +1,8 @@
 db_params:
   db_type: postgresql
   db_driver: psycopg2
-  username: superset
-  password: superset
+  username: ${POSTGRES_USER}
+  password: ${POSTGRES_PASSWORD}
   host: localhost
   port: 5432
   database: superset

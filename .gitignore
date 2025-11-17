@@ -48,3 +48,6 @@ utils/__pycache__/db_util.cpython-311.pyc
 /utils/__pycache__
 /utils/__pycache__
 /.cursor
+/ifpenv/Lib
+/ifpenv
+.env

@@ -1032,7 +1032,7 @@ class LoadAction:
             dest_row = []
             try:
                 for column_definition in column_definitions:
-                    dest_row.append(self.format_column_value(column_definition, row[column_definition[self.C_INDEX]]))
+                    dest_row.append(self.format_column_value(column_definition, row.iloc[column_definition[self.C_INDEX]]))
             except (CustomException , TypeError) as e:
                 row['err_message'] = e.message
                 excep_data.append(row)

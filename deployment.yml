@@ -1,0 +1,112 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: bpod-dev-ifp
+  name: ifp-mage-python
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ifp-mage-python
+  template:
+    metadata:
+      annotations:
+        # 解决contrast配置中“Java Agent fails to connect to Contrast UI: Connection refused” issue，在配置文档里面有标注
+        proxy.istio.io/config: '{ "holdApplicationUntilProxyStarts": true }'
+      labels:
+        app: ifp-mage-python
+        # pod的出入口网络流量以及邮件服务，ping服务，访问ibm内网（BLUEFRINGE）的配置
+        allow-EGRESS-PUB-HTTPS: "true"
+        allow-EGRESS-PUB-HTTP: "true"
+        allow-EGRESS-PUB-ICMP: "true"
+        allow-EGRESS-PUB-SMTP: "true"
+        allow-EGRESS-PUB-SSH: "true"
+        allow-EGRESS-PRIV-BLUEFRINGE: "true"
+        allow-INGRESS-PUB: "true"
+    spec:
+      containers:
+      - name: ifp-mage-python
+        image: "%(IMAGE)"
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        resources:
+          limits:
+            cpu: "3"
+            memory: 8Gi
+          requests:
+            cpu: "1"
+            memory: 4Gi
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: mage-postgre-secret
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: mage-postgre-secret
+        - name: COS_API_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: mage-storage-secret
+        - name: COS_INSTANCE_CRN
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: mage-storage-secret
+        - name: SFTP_IFP_ID
+          valueFrom:
+            secretKeyRef:
+              name: sftp-ifp-storage-secret
+              key: username
+        - name: SFTP_IFP_PASS
+          valueFrom:
+            secretKeyRef:
+              name: sftp-ifp-storage-secret
+              key: password
+        volumeMounts:
+        - name: mage-python-fs
+          mountPath: /usr/src/app/log/
+      volumes:
+      - name: mage-python-fs
+        persistentVolumeClaim:
+          claimName: mage-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: bpod-dev-ifp
+  name: ifp-mage-python
+spec:
+  selector:
+    app: ifp-mage-python
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: ifp-mage-python-vs
+  namespace: bpod-dev-ifp
+spec:
+  hosts:
+  - ifp-mage-python.ifp.gps.ihost.com
+  gateways:
+  - istio-system/ifp-gps-ihost-com
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: ifp-mage-python.bpod-dev-ifp.svc.cluster.local
+        port:
+          number: 8000

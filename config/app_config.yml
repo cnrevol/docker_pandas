@@ -1,11 +1,11 @@
 cos:
   COS_ENDPOINT: "https://s3.us-south.cloud-object-storage.appdomain.cloud"  #
-  COS_API_KEY_ID: "xxx"  #
-  COS_INSTANCE_CRN: "crn:v1:bluemix:public:cloud-object-storage:global:a/46e65f4bce7bae919c46ea6c6c04d886:0e8d7c2d-1ab2-475b-af17-d04cf59f0eb6::"  #
+  COS_API_KEY_ID: ${COS_API_KEY_ID}  #
+  COS_INSTANCE_CRN: ${COS_INSTANCE_CRN} #
 SFTP:
   SFTP_HOST: "sftp-emea.gps.ihost.com"
-  SFTP_IFP_ID: "sftp_ifp_dev"
-  SFTP_IFP_PASS: "xxx"
-  SFTP_VDI_ID: "sftp_vdi_dev"
-  SFTP_VDI_PASS: "xxx"
+  SFTP_IFP_ID: ${SFTP_IFP_ID}
+  SFTP_IFP_PASS: ${SFTP_IFP_PASS}
+  SFTP_VDI_ID: ${SFTP_VDI_ID}
+  SFTP_VDI_PASS: ${SFTP_VDI_PASS}
   SFTP_PATH: "ifp_dev"

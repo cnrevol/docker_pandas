@@ -96,20 +96,20 @@ if __name__ == "__main__":
     # # # load_action.read_region_all_file("batch user")
 
     
-    load_action.read_pfile_to_table('MY','BANK BOA')
+    # load_action.read_pfile_to_table('MY','BANK BOA')
 
     # load_action.read_pfile_to_table('MY','Invoice weekly Report')
     # load_action.read_pfile_to_table('MY','MALAYSIA')
-    load_action.read_pfile_to_table('MY','Aging')
-    load_action.read_pfile_to_table('MY','ASW650')
+    # load_action.read_pfile_to_table('MY','Aging')
+    # load_action.read_pfile_to_table('MY','ASW650')
     # load_action.read_pfile_to_table('MY','BANK HSBC')
     # load_action.read_pfile_to_table('MY','BANK MBB')
     # load_action.read_pfile_to_table('MY','BANK M2U')
 
         
-    action = PostAction('Malaysia post action', log_instance)
+    # action = PostAction('Malaysia post action', log_instance)
     
-    action.execute_posting('MY','BOA','MYR')
+    # action.execute_posting('MY','BOA','MYR')
 
     # action.execute_posting('MY','HSBC','MYR')
     # action.execute_posting('MY','MBB','MYR')
@@ -397,15 +397,15 @@ if __name__ == "__main__":
     # cn_alc.excute_region_allocate('CN')
 
 
-    # alloc_factory = AllocateFactory()
-    # alloc_factory.register("AllocateAction", AllocateAction)
-    # alloc_factory.register("ChinaAllocateAction", ChinaAllocateAction)
+    alloc_factory = AllocateFactory()
+    alloc_factory.register("AllocateAction", AllocateAction)
+    alloc_factory.register("ChinaAllocateAction", ChinaAllocateAction)
 
 
     # # action = alloc_factory.allocate_get("ChinaAllocateAction", "ChinaAction", log_instance)
     # # action.excute_region_allocate('CN',action_user='batch')
-    # action = alloc_factory.allocate_get("AllocateAction", "commonAction", log_instance)
-    # action.excute_region_allocate('AU',action_user='batch')
+    action = alloc_factory.allocate_get("AllocateAction", "commonAction", log_instance)
+    action.excute_region_allocate('MY',action_user='batch')
 
 
 

@@ -28,7 +28,7 @@ class FileUtil:
     POST_TEMPLATE = "Posting output.xlsx"
     ALOC_TEMPLATE = "Allocation output.xlsx"
     # when to server change to 0
-    is_local = 0
+    is_local = 1
 
     # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
