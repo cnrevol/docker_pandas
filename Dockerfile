@@ -6,25 +6,28 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-# 安装 Python3.12 + pip + runtime 必需品
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        ca-certificates \
-        python3-venv && \
-    rm -rf /var/lib/apt/lists/*
+# 安装系统 python3.12 + venv + pip
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    python3-pip \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# 升级 pip
-RUN python3 -m pip install --no-cache-dir --upgrade pip
+# 创建虚拟环境
+RUN python3 -m venv /opt/venv
 
-# 安装依赖
+# 激活 venv 并升级 pip
+RUN /opt/venv/bin/pip install --no-cache-dir --upgrade pip
+
+# 复制依赖并安装到 venv
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# 拷贝源代码
+# 复制源代码
 COPY . .
 
 EXPOSE 8000
 
-CMD ["python3", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+# 使用 venv 的 python 运行
+CMD ["/opt/venv/bin/python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
