@@ -7,6 +7,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 import uvicorn
 import time
+from dotenv import load_dotenv
 
 from utils.logger import BpodLogger
 from utils.db_util import Database
@@ -24,6 +25,8 @@ from business_api import business_router
 
 # Initialize logger
 logger = BpodLogger()
+
+load_dotenv()
 
 # ========== Pydantic Models ==========
 class HealthResponse(BaseModel):

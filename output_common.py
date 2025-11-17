@@ -53,9 +53,6 @@ class OutputFileAction:
     #     "INBOAINR":"BOA"
     # }
 
-
-    # when to server change to 0
-    is_local = 1
     doc_types = ('SIN', 'SLI', 'SRP')
     # user_confirmed 
 
@@ -161,6 +158,8 @@ class OutputFileAction:
             if not dest_df.empty:
                 # 处理IN数据，判断doctype类型SCQ，SBT，A60
                 # dest_df = self.set_df_doctype(dest_df,region)
+                # 处理asw_text
+                dest_df = self.fix_data_miss(dest_df,region)
                 # 处理document number
                 dest_df, define_table_df = self.get_document_number(dest_df, region)
                 # 设定bankcode
@@ -328,6 +327,15 @@ class OutputFileAction:
         if "Text" in detail_df.columns:
             detail_df["Text"] = detail_df["Text"].astype(str).str[:30]
 
+        sort_columns = ["Region", "Bank", "Currency", "Credit Amount"]
+        existing_sort_columns = [col for col in sort_columns if col in detail_df.columns]
+        if existing_sort_columns:
+            # 定义升降序规则，前三个升序，最后一个降序
+            ascending_flags = [True, True, True, False][:len(existing_sort_columns)]
+            detail_df = detail_df.sort_values(
+                by=existing_sort_columns, ascending=ascending_flags
+            ).reset_index(drop=True)
+
         return detail_df
 
     def process_text_field(self, dest_df):
@@ -434,7 +442,21 @@ class OutputFileAction:
         sql_query = """SELECT *,'' as ctype FROM bl_bank_statement 
                         WHERE otc_region = %s 
                         and ipf_status in ('user_confirmed','single_matched') 
-                        order by trans_type"""
+                        order by trans_type,
+                        CASE
+                            WHEN otc_region = 'CN'
+                                AND trans_type = 'alipay'
+                                AND cn_sort_key ~ '^[0-9]+$'
+                            THEN CAST(cn_sort_key AS INTEGER)
+                            WHEN otc_region = 'CN'
+                                AND trans_type != 'alipay' 
+                            THEN NULL  -- 字符串情况下不转数字
+                        END,
+                        CASE
+                            WHEN otc_region = 'CN' THEN cn_sort_key
+                            ELSE NULL
+                        END; 
+                        """
         # and ipf_status = 'post_confirmed'
         # and bank_name = %s and currency = %s
         # and value_date = %s
@@ -582,7 +604,7 @@ class OutputFileAction:
         """
         保存到云存储
         """
-        if self.is_local == 1:
+        if self.file_util.is_local == 1:
             return 
         cos, bucket = self.file_util.create_cos()
         self.file_util.multi_part_upload("ifp-post", item_name, out_file_path, cos)
@@ -616,9 +638,19 @@ class OutputFileAction:
                             lambda x: self.handle_column("sales_order", x), axis=1
                         )
                     if not rest_dest_df.empty:
+                        # work_type 是SG 数据的 payment 是 SCQ 不用increseno。
+                        # 得到SCQ的 df scq_df，scq_df的document_no 设置为 从 asw_text 列提取出来的数字内容
+                        # payment 是 SCQ 以外的部分，还是按照现在的做法
+                        scq_df = rest_dest_df[rest_dest_df["doctype"] == "SCQ"].copy()
+                        non_scq_df = rest_dest_df[rest_dest_df["doctype"] != "SCQ"].copy()
+                        if not scq_df.empty:
+                            scq_df["document_no"] = scq_df["asw_text"].apply(self.extract_digits_from_asw_text)
+
                         rest_dest_df, latest_increase_no = self.doc_num_increase(
                             rest_dest_df, rule
                         )
+                        # 合并两个df到rest_dest_df
+                        rest_dest_df = pd.concat([scq_df, non_scq_df])
                 elif work_type == "CN":
                     filter_cn1 = dest_df["trans_type"].isin(
                         rule["cn_trans_type"].split(",")
@@ -658,12 +690,24 @@ class OutputFileAction:
                 continue
         return dest_df, rules
 
+    def extract_digits_from_asw_text(self, text: str) -> str:
+        """
+        从 asw_text 中提取第一个连续的数字串作为 document_no
+        """
+        import re
+        if pd.isna(text):
+            return ""
+        match = re.search(r"\d+", str(text))
+        return match.group(0) if match else ""
+
+
     def assign_document_no(self, row):
         """
         判断是否数字
         """
-        if row['bank_ref'].isdigit():
-            return row['bank_ref']
+        # 
+        if self.extract_tran_num(row['narrative2'])=='175':
+            return row['reference1']
         else:
             return self.process_value(row['amount'])
     
@@ -715,6 +759,93 @@ class OutputFileAction:
         df.loc[not_in_lists5 & cid_duplicates, 'doctype'] = 'SBT'
         df = df.sort_values(by='doctype')
         return df
+
+    def get_customer_name_by_id(self, region, customer_id):
+        """
+        按 region 和 customer_id 从 bl_customer_master 取 customer_name。
+        返回 None 表示未找到或查询出错。
+        """
+        try:
+            sql_query = (
+                "SELECT customer_name "
+                "FROM bl_customer_master "
+                "WHERE otc_region = %s AND customer_id = %s"
+            )
+            params = (region, customer_id)
+            df = self.db.execute_query_to_pandas(sql_query, params)
+            if df is None or df.empty:
+                return None
+            # 取第一条的 customer_name
+            return df.loc[0, "customer_name"]
+        except Exception as e:
+            # 记录错误但不要抛出，让调用方继续处理其它行
+            try:
+                self.logger.error(f"get_customer_name_by_id error region={region} customer_id={customer_id}: {e}")
+            except Exception:
+                pass
+            return None
+
+
+    def fix_data_miss(self, df, region):
+        """
+        根据地区配置执行数据修复规则
+        SG: 如果 asw_text 为伪空（NaN, 空串, "null", "nan", "none", « NULL » 等），
+            则用 bl_customer_master 中对应 customer_id 的 customer_name 填充 asw_text。
+        使用单条 SQL（region, customer_id）查询，带简易缓存避免重复查询。
+        """
+        # 必须列检查
+        if 'asw_text' not in df.columns or 'customer_id' not in df.columns:
+            return df
+
+        import numpy as np
+
+        def is_null_like(series):
+            s = series.fillna("").astype(str).str.strip()
+            simple_nulls = {"", "none", "nan", "null"}
+            pattern = r'^[\"\'\u00ab\u00bb\u201c\u201d<>]*null[\"\'\u00ab\u00bb\u201c\u201d<>]*$'
+            mask_simple = s.str.lower().isin(simple_nulls)
+            mask_quoted = s.str.match(pattern, case=False, na=False)
+            return series.isna() | mask_simple | mask_quoted
+
+        if region == "SG":
+            mask_to_fill = is_null_like(df['asw_text'])
+            if not mask_to_fill.any():
+                return df
+
+            # 缓存 customer_id -> customer_name，避免重复 DB 查询
+            customer_cache = {}
+            filled_count = 0
+
+            # 遍历需要填充的行
+            for idx in df.loc[mask_to_fill].index:
+                cust_id_raw = df.at[idx, 'customer_id']
+                if cust_id_raw is None:
+                    continue
+                cust_id = str(cust_id_raw).strip()
+                if cust_id == "":
+                    continue
+
+                # 先查缓存
+                if cust_id in customer_cache:
+                    name = customer_cache[cust_id]
+                else:
+                    # 单条查询
+                    name = self.get_customer_name_by_id(region, cust_id)
+                    customer_cache[cust_id] = name  # 可能是 None
+
+                # 若找到了 name，则赋值
+                if name:
+                    df.at[idx, 'asw_text'] = name
+                    filled_count += 1
+
+            try:
+                self.logger.info(f"dataMissFix: region={region}, filled asw_text for {filled_count} rows using bl_customer_master")
+            except Exception:
+                pass
+
+        return df
+
+
 
     def set_df_doctype(self,df,region):
         """
@@ -1267,21 +1398,32 @@ class OutputFileAction:
         按 Group No 分组，对 Original Amount 求和并处理 Small Difference。
         如果分组合计金额不为0，且本组所有 Small Difference 为0，
         则将绝对值金额填入该组所有记录的 Small Difference。
+        特殊规则：
+            当 Comments 中包含 "Partial"（不区分大小写）时，
+            Small Difference 一律置为 0，不做处理。
         """
-        required_cols = ["Group No", "Original Amount", "Small Difference"]
+        required_cols = ["Group No", "Original Amount", "Small Difference", "Comments"]
         if not all(col in detail_df.columns for col in required_cols):
             return
 
+        # 先统一处理包含 Partial 的行 -> Small Difference 设为 0
+        mask_partial = detail_df["Comments"].str.contains("partial", case=False, na=False)
+        detail_df.loc[mask_partial, "Small Difference"] = 0
+
         # 按 Group No 分组求 Original Amount 的绝对值和
-        group_sums = detail_df.groupby("Group No")["Original Amount"].sum().abs()
+        group_sums = detail_df.groupby("Group No")["Original Amount"].sum().round(2).abs()
 
         for group_no, abs_sum in group_sums.items():
             if abs_sum != 0:
                 group_mask = detail_df["Group No"] == group_no
-                # group_small_diff = detail_df.loc[group_mask, "Small Difference"]
-                # if (group_small_diff == 0).all():
+
+                # 如果该组里含有 Partial，就跳过，不修改（保证 Small Difference=0）
+                if detail_df.loc[group_mask, "Comments"].str.contains("partial", case=False, na=False).any():
+                    continue
+
                 # 将 abs_sum 设置为该组所有记录的 Small Difference
                 detail_df.loc[group_mask, "Small Difference"] = abs_sum
+
 
 
     def out_to_alloc_template_file(self, region, header_df, detail_df, file_type):

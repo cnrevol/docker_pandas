@@ -8,6 +8,20 @@ from sqlalchemy.exc import IntegrityError
 import traceback
 import sys
 import math
+import re,os
+
+pattern = re.compile(r"\$\{([^}^{]+)\}")  # 匹配 ${VAR_NAME}
+
+def env_constructor(loader, node):
+    value = loader.construct_scalar(node)
+    matches = pattern.findall(value)
+    for match in matches:
+        env_value = os.getenv(match, "")
+        value = value.replace(f"${{{match}}}", env_value)
+    return value
+
+# 注册自定义 tag
+yaml.SafeLoader.add_constructor("tag:yaml.org,2002:str", env_constructor)
 
 def load_db_params_from_yaml(config_path="database_config.yml"):
     config_file_path = Path(__file__).resolve().parent.parent / "config" / config_path

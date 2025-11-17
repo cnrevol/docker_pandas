@@ -1,26 +1,29 @@
-# --------------------------------------------------------
-# Stage 1: Build dependencies using standard Python build
-# --------------------------------------------------------
-FROM python:3.11 AS builder
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir --upgrade pip
+# 安装 Python3.12 + pip + runtime 必需品
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        ca-certificates \
+        python3-venv && \
+    rm -rf /var/lib/apt/lists/*
 
+# 升级 pip
+RUN python3 -m pip install --no-cache-dir --upgrade pip
+
+# 安装依赖
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
+# 拷贝源代码
 COPY . .
-
-# --------------------------------------------------------
-# Stage 2: Runtime image (Chainguard Python 3.11)
-# --------------------------------------------------------
-FROM cgr.dev/chainguard/python:3.11-dev AS runtime
-
-WORKDIR /app
-
-COPY --from=builder /install /usr/local
-COPY --from=builder /app /app
 
 EXPOSE 8000
 

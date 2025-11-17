@@ -10,8 +10,28 @@ from excute_common import ExecuteAction
 from utils.file_util import FileUtil
 from load_control import LoadControl
 from output_common import OutputFileAction
+from utils.db_util import Database
 
 logger = BpodLogger()
+
+def get_file_prefixes(region: str, is_post_file: str, log: BpodLogger) -> List[str]:
+    """Fetch file prefixes from sc_raw_file_define by region and is_post_file flag."""
+    try:
+        db = Database(logger=log)
+        query = (
+            "SELECT file_prefix "
+            "FROM sc_raw_file_define "
+            "WHERE otc_region = %s AND is_post_file = %s"
+        )
+        params = (region, is_post_file)  # 按顺序对应 %s 占位符
+        df = db.execute_query_to_pandas(query, params)
+
+        prefixes = df["file_prefix"].dropna().astype(str).tolist() if (df is not None and not df.empty) else []
+        log.info(f"Fetched {len(prefixes)} prefixes for region {region}, is_post_file {is_post_file}")
+        return prefixes
+    except Exception as e:
+        log.error(f"Failed to fetch prefixes: {e}")
+        return []
 
 def execute_post(region: str, action_user: str) -> Dict[str, Any]:
     """Execute posting operation for a region"""
@@ -20,9 +40,9 @@ def execute_post(region: str, action_user: str) -> Dict[str, Any]:
     post_action.excute_region_posting(region, action_user)
     return {"status": "success", "message": f"Posting completed for region {region}"}
 
-def execute_load(region: str, files: str, action_user: str) -> Dict[str, Any]:
+def execute_load(region: str, files: List[str], action_user: str) -> Dict[str, Any]:
     """Execute loading operation for files in a region"""
-    file_list = files.split(",")
+    file_list = files
     
     logger.info(f'File check action block. region:{region}. file_list: {file_list}. user:{action_user}')
     load_control = LoadControl(logger)
@@ -52,6 +72,9 @@ def generate_post_output(region: str, action_user: str) -> Dict[str, Any]:
     logger.info(f'Generating posting output files. region:[{region}]')
     output_action = OutputFileAction('Post action', logger)
     output_action.output_post_data(region, action_user)
+    file_util = FileUtil(state = None, logger=logger)
+    result = file_util.upload_all_cos_to_sftp('ifp-post', 'ifp')
+    logger.debug(result)
     
     return {"status": "success", "message": f"Posting output files generated for region {region}"}
 
@@ -60,15 +83,21 @@ def generate_alloc_output(region: str, action_user: str) -> Dict[str, Any]:
     logger.info(f'Generating allocation output files. region:[{region}]')
     output_action = OutputFileAction('Post action', logger)
     output_action.output_alloc_data(region, action_user)
-    
+    file_util = FileUtil(state = None, logger=logger)
+    result = file_util.upload_all_cos_to_sftp('ifp-post', 'ifp')
+    logger.debug(result)
+        
     return {"status": "success", "message": f"Allocation output files generated for region {region}"}
 
 def execute_load_post(region: str, action_user: str) -> Dict[str, Any]:
     """Execute sftp load and post operation for a region"""
     logger.info(f'Load and Post sftp operation started. region:[{region}]. user:[{action_user}]')
     
+    prefixes = get_file_prefixes(region=region, is_post_file='1', log=logger)
+    logger.debug(f"Using prefixes for SFTP download: {prefixes}")
+
     file_util = FileUtil(state = None, logger=logger)
-    result = file_util.download_sftp_to_cos(region=region, user_type='ifp')
+    result = file_util.download_sftp_to_cos(region=region, user_type='ifp', prefixes=prefixes)
     logger.info(result)
     if len(result['failed']) > 0:
         logger.error('Download from SFTP server Failed. ')
@@ -112,8 +141,11 @@ def execute_load_aging_allocate_sftp(region: str, prefix: str, action_user: str)
     """Execute load sftp aging and allocate operation for a region"""
     logger.info(f'Load SFTP aging and allocate operation started. region:[{region}]. prefix:[{prefix}]. user:[{action_user}]')
     
+    prefixes = get_file_prefixes(region=region, is_post_file='3', log=logger)
+    logger.debug(f"Using prefixes for SFTP download: {prefixes}")
+
     file_util = FileUtil(state = None, logger=logger)
-    result = file_util.download_sftp_to_cos(region=region, user_type='ifp')
+    result = file_util.download_sftp_to_cos(region=region, user_type='ifp', prefixes=prefixes)
     logger.info(result)
     if len(result['failed']) > 0:
         logger.error('Download from SFTP server Failed. ')

@@ -57,8 +57,7 @@ class LoadAction:
     POST_ACT = "_PostAction"
     ACT_LOCK = "lock"
     ACT_FREE = "un_lock"
-    # when to server change to 0
-    is_local = 1
+
     # GB='gb2312'
     # UTF8='utf-8'
 
@@ -451,7 +450,7 @@ class LoadAction:
         df = pd.DataFrame(file_data)
         df.to_csv(new_fullfile_name, index=False)
         # 保存这个文件到云存储
-        if self.is_local == 0:
+        if self.file_util.is_local == 0:
             self.move_file_to_cos(region=self.region,item_name=new_filename,out_file_path=new_fullfile_name)
         
 
@@ -1124,7 +1123,7 @@ class LoadAction:
         从数据文件定义表，读取配置数据
         TODO 提交 Mage 需要修改
         '''
-        sql_query = "SELECT * FROM sc_raw_file_define WHERE file_prefix = %s and otc_region = %s and del_flg = 0;"
+        sql_query = "SELECT * FROM sc_raw_file_define WHERE file_prefix = %s and otc_region = %s and del_flg = 0 order by file_action_name;"
         # parameters = ("MY HSBC","MY",)
         parameters = (prefix,region,)
         rst = self.db.execute_query_col_name(sql_query,parameters)
@@ -1134,7 +1133,7 @@ class LoadAction:
         '''
         取得数据文件定义配置信息
         '''
-        sql_query = "SELECT * FROM sc_raw_file_define WHERE otc_region = %s and del_flg = '0' and is_post_file='1';"
+        sql_query = "SELECT * FROM sc_raw_file_define WHERE otc_region = %s and del_flg = '0' and is_post_file='1' order by file_action_name;"
         parameters = (region,)
         rst = self.db.execute_query_col_name(sql_query,parameters)
         return rst
@@ -1194,6 +1193,7 @@ class LoadAction:
             # 如果已经post的数据，不再load处理
             # src_df = self.skip_posted_bank_statment(src_df)
             # 顺丰COD数据，没有balance，会造成主键缺失，丢数据。
+            src_df = self.set_df_doctype(df=src_df,region=self.region)
             src_df = self.set_cod_balance(raw_table_name=raw_table_name,rc_df=src_df)
             src_df = self.trim_Number_nan(src_df)
             nowtime = datetime.now()
@@ -1495,3 +1495,45 @@ class LoadAction:
         check if the prefix is in any of the bill_files elements
         """
         return any(prefix.lower() in bill_file.lower() for bill_file in bill_files)
+
+    listscq = ['175','399']
+
+    def set_doctype(self, df, listscq):
+        """
+        设定doctype   
+        1. 175，399 是 SCQ
+        2. 175,399 以外，是 SBT
+        """
+        # 确保 ctype 是字符串并补齐到3位
+        df['ctype'] = df['ctype'].astype(str).str.zfill(3)
+        
+        # 默认全部设为 SBT
+        df['doctype'] = 'SBT'
+        
+        # 条件匹配 175,399 设为 SCQ
+        df.loc[df['ctype'].isin(listscq), 'doctype'] = 'SCQ'
+        
+        return df
+
+    def set_df_doctype(self,df,region):
+        """
+        根据地区设置doctype
+        IN地区：根据Transaction Type确定doctype
+        其他地区：根据payment字段确定doctype
+        """
+        if region=="IN":
+            df['ctype'] = df['narrative2'].apply(self.extract_tran_num)
+            df = self.set_doctype(df, self.listscq)
+        
+        return df    
+    
+    def extract_tran_num(self,val):
+        """
+        提取括号中的数字
+        """
+        number=0
+        if isinstance(val, (str, bytes)):
+            match = re.search(r'\((\d+)\)', val)
+            if match:
+                number = match.group(1)
+        return number

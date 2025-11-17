@@ -6,7 +6,7 @@ import re
 from decimal import Decimal, getcontext
 import traceback
 from itertools import combinations
-from datetime import datetime
+from datetime import datetime,timedelta
 from collections import namedtuple
 import pandas as pd
 
@@ -15,9 +15,7 @@ from utils.db_util import Database
 from utils.file_util import FileUtil
 from utils.comm_util import CommUtil
 from exceptions import CustomException,ConcurrencyException
-
-import random
-from collections import defaultdict
+from utils.combi_util import OptimizedMatchingEngine
 
 
 getcontext().prec = 10
@@ -103,6 +101,9 @@ class AllocateAction:
         self.db = Database(logger=logger)
         self.file_util = FileUtil(logger=logger)
         self.comm_util = CommUtil(logger=logger)
+        self.engine = None
+        self.his_combi_ids = set()
+        
 
     def excute_region_allocate(self, region, action_user="system"):
         """
@@ -160,7 +161,7 @@ class AllocateAction:
 
                     # 取得配置本地区的常量定义数据
                     self.set_cls_define_data(region)
-
+                    self.engine = OptimizedMatchingEngine(tolerance=self.tole, generate_group_func=self.generate_group,logger=self.logger)
                     dest_dfs_dict = self.get_dest_tables_dataframes(
                         dest_tables=dest_tables,
                         src_table=src_table_name,
@@ -172,6 +173,9 @@ class AllocateAction:
                     src_df = self.excute_rule_methods(
                         aloc_cate, src_df, src_table_name, dest_dfs_dict
                     )
+                    # 添加整体更新
+                    src_df = self.update_aloc_status(src_df,region)
+
                     update_table = "bl_aging_allocate"
                     self.logger.info(f"Allocate data count :  {len(src_df)} ")
                     self.logger.info(f"Allocate result up to DB talbe: {update_table}.")
@@ -236,7 +240,75 @@ class AllocateAction:
                 bl_message=bl_msg,
                 ac_user=action_user,
             )
-        
+    
+
+    def update_aloc_status(self,df: pd.DataFrame, region: str) -> pd.DataFrame:
+        """
+        更新 aloc_status:
+        - 在 region == 'CN' 时处理
+        - 条件：aloc_status = 'Not SO match' 且 doc_type != 'SIN'
+        - 且 pay_date = 系统昨天 (date 类型)
+        - 操作：找到这些行的 aloc_group，把对应 aloc_group 的所有行 aloc_status 改为 'SO match'
+        """
+        if region != "CN":
+            # 非 CN 区域，不处理
+            return df
+
+        # 系统昨天
+        yesterday = (datetime.now() - timedelta(days=1)).date()
+        # yesterday=date(2025, 9, 2)
+        # 找到符合条件的 aloc_group
+        target_groups = df[
+            (df["aloc_status"] == self.CMT_NOSO) &
+            (df["doc_type"] != "SIN") &
+            (df["pay_date"] == yesterday)
+        ]["aloc_group"].unique()
+
+        # 如果找到符合条件的 group，则批量更新
+        if len(target_groups) > 0:
+            # 命中的记录条数
+            matched_df = df[df["aloc_group"].isin(target_groups)]
+            matched_count = matched_df.shape[0]
+
+            # 输出总信息
+            self.logger.debug(
+                f"update_aloc_status: hit aloc_group count={len(target_groups)}, sum={matched_count}"
+            )
+
+
+            # 按 group + customer_id 逐个处理
+        for (group, cust_id), group_df in matched_df.groupby(["aloc_group", "customer_id"]):
+            cnt = group_df.shape[0]
+            amt_sum = group_df["amount"].sum()
+
+            self.logger.debug(
+                f"update_aloc_status: aloc_group={group}, customer_id={cust_id}, count={cnt}, amount_sum={amt_sum}"
+            )
+
+            # 只有在金额校验通过时才更新
+            if abs(amt_sum) < Decimal(str(self.tole)):
+                df.loc[df["aloc_group"] == group, "aloc_status"] = self.ALO_SO
+                df.loc[df["aloc_group"] == group, "aloc_comments"] = \
+                    df.loc[df["aloc_group"] == group, "aloc_comments"].fillna("").astype(str) + " today posting"
+            else:
+                self.logger.debug(
+                    f"update_aloc_status: skip aloc_group={group}, amount_sum={amt_sum} (>= tole={self.tole})"
+                )
+
+
+            # # 输出逐个 group 的数量
+            
+            # for (group, cust_id), cnt in matched_df.groupby(["aloc_group", "customer_id"]).size().items():
+            #     self.logger.debug(
+            #         f"update_aloc_status: aloc_group={group}, customer_id={cust_id}, count={cnt}"
+            #     )
+
+            # df.loc[df["aloc_group"].isin(target_groups), "aloc_status"] = self.ALO_SO
+            # df.loc[df["aloc_group"].isin(target_groups), "aloc_comments"] = \
+            #     df.loc[df["aloc_group"].isin(target_groups), "aloc_comments"].fillna("").astype(str) + " today posting"
+
+        return df
+
     def set_cls_define_data(self, region):
         """
         取得本地区的常量定义数据
@@ -361,36 +433,6 @@ class AllocateAction:
             f"search define rule {rule_item.rule_name}, seq: {rule_item.rule_seq} ,fullcount:{len(src_df)}, srch count :{len(src_df_ts)}"
         )
 
-        # if (
-        #     rule_item.dest_table != "bl_customer_master"
-        #     and rule_item.dest_table != "raw_cn_released"
-        # ):
-        #     for ind_s, row_s in src_df_ts.iterrows():
-        #         src_values = self.extract_rule_values(
-        #             d_row=row_s,
-        #             fields=rule_item.src_fields,
-        #             rule_list=rule_item.src_rule_list,
-        #         )
-        #         # destination data
-        #         for _, row_d in dst_df.iterrows():
-        #             dest_values = self.extract_rule_values(
-        #                 d_row=row_d,
-        #                 fields=rule_item.dest_fields,
-        #                 rule_list=rule_item.dest_rule_list,
-        #             )
-        #             bool_m, _ = self.compare_row_data(
-        #                 src_values=src_values,
-        #                 dest_values=dest_values,
-        #                 rule_list=rule_item.src_rule_list,
-        #             )
-        #             if bool_m:
-        #                 src_df.loc[ind_s, rule_item.result_field] = str(
-        #                     row_d[rule_item.result_field]
-        #                 ).strip()
-        #                 self.logger.debug(
-        #                     f"Allocate define data found. indx:{ind_s} , values {src_values} "
-        #                 )
-        #                 break
         self.logger.debug(
             f"search define finished {rule_item.rule_name}, seq: {rule_item.rule_seq} ,df count:{len(src_df)}"
         )
@@ -415,8 +457,14 @@ class AllocateAction:
         src_df, opst_df = self.filter_payment(src_df=src_df, payment=payment)
         # 过滤对象外的customer_id
         src_df, ext_df = self.filter_ext_customer_id(src_df=src_df)
+
+        # 过滤掉税金对象外的数据
+        extax_df = pd.DataFrame()
+        # if self.region == "IN":
+        src_df, extax_df = self.filter_tax_amount(df=src_df)
+
         # 合并对象外数据
-        opst_df = pd.concat([opst_df, ext_df], ignore_index=True)
+        opst_df = pd.concat([opst_df, ext_df,extax_df], ignore_index=True)
 
         # 根据账目数据类型分组DF，类型定义来自配置表
         mask = src_df["doc_type"].isin(rule_item.src_data_type.split(","))
@@ -604,7 +652,7 @@ class AllocateAction:
         if(len(dest_df_cid))<self.COMBINATION_LIMIT:
 
             amount_ind_dic = {}
-            combination_sums = {}
+            # 组合缓存不再需要，由引擎内部处理
             combi_ids = {}
             for ind_d, row_d in dest_df_cid.iterrows():
                 # 收集金额
@@ -614,21 +662,48 @@ class AllocateAction:
                     row_d=row_d,
                     field=dest_amt_field,
                 )
-            combi_ids = self.hold_combination_sums_smart(
+            combi_ids = self.engine.hold_combination_sums_smart(
                 amount_ind_dic=amount_ind_dic,
                 sum_amount=src_amt,
-                combination_sums=combination_sums,
             )
             
             if combi_ids:
-                first_amount_dif = combi_ids[0][1]
-                all_indids = [inid for inid, _ in combi_ids]
-                hits_rows = dest_df_cid.loc[all_indids]
-                hits_rows = pd.concat([pd.DataFrame([src_row]), hits_rows]).reset_index(
-                    drop=True
-                )
-                hits_rows = self.set_apply_result_comments(hits_rows, result_comment, first_amount_dif)
-                return hits_rows
+                if isinstance(combi_ids[0], list):
+                    combi_ids = [item for sublist in combi_ids for item in sublist]
+                row_index = src_row.name
+                self.logger.debug(f'combi_ids count:[{len(combi_ids)}], content:[{combi_ids}] , srcrow index:{row_index}  amt {src_amt}')
+
+                if len(combi_ids) > 0:
+                    first_amount_dif = combi_ids[0][1]
+                    all_indids = [inid for inid, _ in combi_ids]
+
+                    # 确保 his_combi_ids 已初始化为 set（如果外层未初始化，也在这里初始化）
+                    if not hasattr(self, "his_combi_ids") or self.his_combi_ids is None:
+                        self.his_combi_ids = set()
+
+                    # 检查新 combi_ids 是否与历史已处理集合有交集
+                    overlap = set(all_indids) & self.his_combi_ids
+                    if overlap:
+                        # 如果存在交集则跳过处理（不追加也不处理）
+                        self.logger.debug(
+                            f"find_cid_amt_sum: skip src_row index={row_index} because some ids already processed: {overlap}"
+                        )
+                        return pd.DataFrame()   # 返回空表示跳过
+
+                    # 否则把这些 id 加入 his_combi_ids 并继续处理
+                    self.his_combi_ids.update(all_indids)
+                    self.logger.debug(
+                        f"find_cid_amt_sum: processing src_row index={row_index}, add ids to his_combi_ids: {all_indids}"
+                    )
+                    
+                    hits_rows = dest_df_cid.loc[all_indids]
+                    hits_rows = pd.concat([pd.DataFrame([src_row]), hits_rows]).reset_index(
+                        drop=True
+                    )
+
+
+                    hits_rows = self.set_apply_result_comments(hits_rows, result_comment, first_amount_dif)
+                    return hits_rows
             else:
                 return hits_rows
         else:
@@ -748,8 +823,8 @@ class AllocateAction:
 
         # 过滤掉税金对象外的数据
         extax_df = pd.DataFrame()
-        if self.region == "IN":
-            src_df, extax_df = self.filter_tax_amount(df=src_df)
+        # if self.region == "IN":
+        src_df, extax_df = self.filter_tax_amount(df=src_df)
         # 过滤掉已经处理过的数据
         src_df, exdone_df = self.filter_done_data(df=src_df)
         # 过滤payment类型
@@ -783,7 +858,12 @@ class AllocateAction:
                            {rule_item.dest_data_type} count:{len(df2)} ."""
         )
         # 计算比较金额分组的合计
-        equal_combinations = self.find_equal_combinations(df1, df2)
+        
+
+        # equal_combinations = self.find_equal_combinations(df1, df2)
+
+        equal_combinations = self.engine.find_equal_combinations(df1, df2)
+
         for (
             cid,
             combo1,
@@ -848,142 +928,196 @@ class AllocateAction:
         return rdf
 
 
-    def find_equal_combinations(self, src_df, dst_df):
-        """
-        查找匹配组合
-        """
-        equal_combinations = []
-        loop_cnt = 0
-        pay_range = 2
-        up_rg = 2
-        low_rg = 4
-        data_edge = 30
-        for cid1, amounts1, indices1 in src_df[
-            ["customer_id", "amount", "Indices"]
-        ].values:
-            loop_cnt = loop_cnt + 1
-            if len(amounts1) < data_edge:
-                # self.logger.debug(f'combinations compare customer id: {cid1} loop:{loop_cnt} amt cnts: {len(amounts1)}')
-                for cid2, amounts2, indices2 in dst_df[
-                    ["customer_id", "amount", "Indices"]
-                ].values:
-                    # 这里做匹配率与执行时间的平衡
-                    # 数据量大的发票数据还是做匹配，但是，不做过多的合计匹配，只做单条，两条匹配
-                    if len(amounts2) < data_edge:
-                        up_rg = 2
-                        low_rg = 8
-                    else:
-                        up_rg = 0
-                        low_rg = 2
-                    if cid1 == cid2:
-                        equal_combinations = self.caculate_combinations(
-                            equal_combinations,
-                            up_rg,
-                            low_rg,
-                            pay_range,
-                            cid1,
-                            amounts1,
-                            indices1,
-                            amounts2,
-                            indices2,
-                        )
+    # def find_equal_combinations(self, src_df, dst_df):
+    #     """
+    #     查找匹配组合
+    #     """
+    #     equal_combinations = []
+    #     loop_cnt = 0
+    #     pay_range = 2
+    #     up_rg = 2
+    #     low_rg = 4
+    #     data_edge = 30
+    #     for cid1, amounts1, indices1 in src_df[
+    #         ["customer_id", "amount", "Indices"]
+    #     ].values:
+    #         loop_cnt = loop_cnt + 1
+    #         if len(amounts1) < data_edge:
+    #             # self.logger.debug(f'combinations compare customer id: {cid1} loop:{loop_cnt} amt cnts: {len(amounts1)}')
+    #             for cid2, amounts2, indices2 in dst_df[
+    #                 ["customer_id", "amount", "Indices"]
+    #             ].values:
+    #                 # 这里做匹配率与执行时间的平衡
+    #                 # 数据量大的发票数据还是做匹配，但是，不做过多的合计匹配，只做单条，两条匹配
+    #                 if len(amounts2) < data_edge:
+    #                     up_rg = 2
+    #                     low_rg = 8
+    #                 else:
+    #                     up_rg = 0
+    #                     low_rg = 2
+    #                 if cid1 == cid2:
+    #                     equal_combinations = self.caculate_combinations(
+    #                         equal_combinations,
+    #                         up_rg,
+    #                         low_rg,
+    #                         pay_range,
+    #                         cid1,
+    #                         amounts1,
+    #                         indices1,
+    #                         amounts2,
+    #                         indices2,
+    #                     )
 
-        return equal_combinations
+    #     return equal_combinations
 
-    def caculate_combinations(
-        self,
-        equal_combinations,
-        up_rg,
-        low_rg,
-        pay_range,
-        cid1,
-        amounts1,
-        indices1,
-        amounts2,
-        indices2,
-    ):
-        """
-        Calculate combinations of amounts for a given customer ID.
+    # def caculate_combinations(
+    #     self,
+    #     equal_combinations,
+    #     up_rg,
+    #     low_rg,
+    #     pay_range,
+    #     cid1,
+    #     amounts1,
+    #     indices1,
+    #     amounts2,
+    #     indices2,
+    # ):
+    #     """
+    #     Calculate combinations of amounts for a given customer ID.
 
-        Parameters:
-        - equal_combinations (list): A list to store equal combinations.
-        - up_rg (int): Upper range limit.
-        - low_rg (int): Lower range limit.
-        - pay_range (int): Range for payment data.
-        - cid1 (int): Customer ID.
-        - amounts1 (list): List of amounts for the first set of data.
-        - indices1 (list): List of indices corresponding to amounts1.
-        - amounts2 (list): List of amounts for the second set of data.
-        - indices2 (list): List of indices corresponding to amounts2.
-        Returns:
-        - equal_combinations (list): List containing equal combinations for the given customer ID.
-        """
-        # self.logger.debug(f'combinations start customer id: {cid1} .amt1 cnts: {len(amounts1)} amt2 cnts: {len(amounts2)}.lower range {low_rg} . upper range {up_rg} . pay_range {pay_range} .')
-        combos1 = []
-        # 计算所有id组合的金额合计，保存
-        for r in range(1, len(amounts1) + 1):
-            # if r <= low_rg or up_rg > len(amounts1) - r:
-            # 付款数据 最多两条合计做匹配
-            if r <= pay_range:
-                combos1.extend(
-                    [
-                        (
-                            sum([amounts1[i] for i in combo]),
-                            [indices1[i] for i in combo],
-                        )
-                        for combo in combinations(range(len(amounts1)), r)
-                    ]
-                )
-        combos2 = []
-        # 计算所有id组合的金额合计，保存
-        for r in range(1, len(amounts2) + 1):
-            if r <= low_rg or up_rg > len(amounts2) - r:
-                combos2.extend(
-                    [
-                        (
-                            sum([amounts2[i] for i in combo]),
-                            [indices2[i] for i in combo],
-                        )
-                        for combo in combinations(range(len(amounts2)), r)
-                    ]
-                )
-                # 取得合计小于阈值的金额对应的索引，保存返回
-        for combo1, indices1 in combos1:
-            for combo2, indices2 in combos2:
-                if abs(Decimal(str(combo1)) + Decimal(str(combo2))) <= Decimal(
-                    str(self.tole)
-                ):
-                    group_id = self.generate_group()
-                    amount_diff = abs(Decimal(str(combo1)) + Decimal(str(combo2)))
-                    equal_combinations.append(
-                        (
-                            cid1,
-                            combo1,
-                            indices1,
-                            combo2,
-                            indices2,
-                            amount_diff,
-                            group_id,
-                        )
-                    )
-                    # self.logger.debug(f'combinations matched customer id: {cid1} . amount sum : {combo1} , {combo2}, group {group_id}')
-                    break
+    #     Parameters:
+    #     - equal_combinations (list): A list to store equal combinations.
+    #     - up_rg (int): Upper range limit.
+    #     - low_rg (int): Lower range limit.
+    #     - pay_range (int): Range for payment data.
+    #     - cid1 (int): Customer ID.
+    #     - amounts1 (list): List of amounts for the first set of data.
+    #     - indices1 (list): List of indices corresponding to amounts1.
+    #     - amounts2 (list): List of amounts for the second set of data.
+    #     - indices2 (list): List of indices corresponding to amounts2.
+    #     Returns:
+    #     - equal_combinations (list): List containing equal combinations for the given customer ID.
+    #     """
+    #     # self.logger.debug(f'combinations start customer id: {cid1} .amt1 cnts: {len(amounts1)} amt2 cnts: {len(amounts2)}.lower range {low_rg} . upper range {up_rg} . pay_range {pay_range} .')
+    #     combos1 = []
+    #     # 计算所有id组合的金额合计，保存
+    #     for r in range(1, len(amounts1) + 1):
+    #         # if r <= low_rg or up_rg > len(amounts1) - r:
+    #         # 付款数据 最多两条合计做匹配
+    #         if r <= pay_range:
+    #             combos1.extend(
+    #                 [
+    #                     (
+    #                         sum([amounts1[i] for i in combo]),
+    #                         [indices1[i] for i in combo],
+    #                     )
+    #                     for combo in combinations(range(len(amounts1)), r)
+    #                 ]
+    #             )
+    #     combos2 = []
+    #     # 计算所有id组合的金额合计，保存
+    #     for r in range(1, len(amounts2) + 1):
+    #         if r <= low_rg or up_rg > len(amounts2) - r:
+    #             combos2.extend(
+    #                 [
+    #                     (
+    #                         sum([amounts2[i] for i in combo]),
+    #                         [indices2[i] for i in combo],
+    #                     )
+    #                     for combo in combinations(range(len(amounts2)), r)
+    #                 ]
+    #             )
+    #             # 取得合计小于阈值的金额对应的索引，保存返回
+    #     for combo1, indices1 in combos1:
+    #         for combo2, indices2 in combos2:
+    #             if abs(Decimal(str(combo1)) + Decimal(str(combo2))) <= Decimal(
+    #                 str(self.tole)
+    #             ):
+    #                 group_id = self.generate_group()
+    #                 amount_diff = abs(Decimal(str(combo1)) + Decimal(str(combo2)))
+    #                 equal_combinations.append(
+    #                     (
+    #                         cid1,
+    #                         combo1,
+    #                         indices1,
+    #                         combo2,
+    #                         indices2,
+    #                         amount_diff,
+    #                         group_id,
+    #                     )
+    #                 )
+    #                 # self.logger.debug(f'combinations matched customer id: {cid1} . amount sum : {combo1} , {combo2}, group {group_id}')
+    #                 break
 
-        return equal_combinations
+    #     return equal_combinations
 
+    # def filter_tax_amount(self, df):
+    #     # """
+    #     # 印度部分入账数据是税
+    #     # 与原金额分开，不需要销账，
+    #     # 需要过滤掉，提高效率
+    #     # """
+
+    #     # sin_df = df[df["doc_type"] == "SIN"]
+    #     # no_sin_df = df[df["doc_type"] != "SIN"]
+    #     # sin_df["tax_percent"] = sin_df["amount"] / sin_df["amount_oa"]
+    #     # t_df = sin_df[sin_df["tax_percent"] > self.IND_TAX]
+    #     # ex_df = sin_df[sin_df["tax_percent"] <= self.IND_TAX]
+    #     # t_df = pd.concat([t_df, no_sin_df], ignore_index=True)
+
+    #     # return t_df, ex_df
+    #     # """
+    #     # 过滤对象外/对象内数据：
+    #     # - 对象外：doc_type=SBT 且 amount != amount_oa
+    #     # - 对象内：其他数据
+    #     # """
+    #     # # 对象外数据
+    #     ex_df = pd.DataFrame()
+#         ex_df = df[(df["doc_type"] == "SIN") & (df["amount"] != df["amount_oa"])]
+
+    #     # 对象内数据（其余部分）
+    #     in_df = df.drop(ex_df.index)
+
+        # return in_df, ex_df
     def filter_tax_amount(self, df):
         """
-        印度部分入账数据是税
-        与原金额分开，不需要销账，
-        需要过滤掉，提高效率
+        过滤对象外/对象内数据：
+        - 对象外：doc_type=SIN 且 差额比例 > gap_rate
+        - 对象内：其他数据
+        - 如果 gap_rate 未定义（空），则不做处理，ex_df 为空
         """
-        sin_df = df[df["doc_type"] == "SIN"]
-        no_sin_df = df[df["doc_type"] != "SIN"]
-        no_sin_df["tax_percent"] = no_sin_df["amount"] / no_sin_df["amount_oa"]
-        t_df = no_sin_df[no_sin_df["tax_percent"] > self.IND_TAX]
-        ex_df = no_sin_df[no_sin_df["tax_percent"] <= self.IND_TAX]
-        t_df = pd.concat([t_df, sin_df], ignore_index=True)
-        return t_df, ex_df
+
+        # 从配置表里取 gap_rate
+        gap_rate_str = self.comm_util.get_def_data_by_name(self.def_data, "excu_tax")
+
+        # gap_rate 未定义 → 不处理，直接返回
+        if gap_rate_str == "":
+            return df, pd.DataFrame()
+
+        # 转换 gap_rate
+        try:
+            gap_rate = float(gap_rate_str)
+        except ValueError:
+            gap_rate = 0.0
+
+        # 复制 df，避免直接改原始
+        df = df.copy()
+
+        # 计算差额比例（以 amount_oa 为基准）
+        df["gap_ratio"] = df.apply(
+            lambda row: abs(row["amount"] - row["amount_oa"]) / row["amount_oa"]
+            if row["amount_oa"] != 0 else float("inf"),
+            axis=1
+        )
+
+        # 对象外数据：差额比例 > gap_rate
+        ex_df = df[(df["doc_type"] == "SIN") & (df["gap_ratio"] > gap_rate)]
+
+        # 对象内数据（其余部分）
+        in_df = df.drop(ex_df.index)
+
+        return in_df, ex_df
+
 
     def filter_done_data(self, df):
         """
@@ -1068,7 +1202,29 @@ class AllocateAction:
         """
         # amount_list.append({ind_d,row_d[field]})
         # return amount_list
-        amount_ind_dic[ind_d] = Decimal(str(row_d[field]))
+        try:
+            amount_value = Decimal(str(row_d[field]))
+        except Exception:
+            amount_value = Decimal('0')
+
+        # 提取并标准化 pay_date，用于排序优先级（越早越优先）
+        # 如果不存在 pay_date 列或为空，使用一个不会影响计算但排序靠后的默认值
+        # 这里采用极大日期，确保无 pay_date 的记录排在最后
+        if isinstance(row_d, dict):
+            pay_date_val = row_d.get('pay_date', None)
+        else:
+            pay_date_val = row_d['pay_date'] if 'pay_date' in row_d else None
+
+        try:
+            pay_date_parsed = pd.to_datetime(pay_date_val) if pay_date_val is not None else pd.Timestamp.max
+        except Exception:
+            pay_date_parsed = pd.Timestamp.max
+
+        amount_ind_dic[ind_d] = {
+            'amount': amount_value,
+            'pay_date': pay_date_parsed,
+            'index': ind_d,
+        }
         return amount_ind_dic
 
     def add_so_list(self, amount_ind_dic, ind_d, row_d, field):
@@ -1115,7 +1271,10 @@ class AllocateAction:
                 # self.logger.debug(f"combination length:{combination_length}.")
                 comb = combinations(ids, combination_length)
                 for combination_ids in comb:
-                    combination_sum = sum(amount_ind_dic[id] for id in combination_ids)
+                    combination_sum = sum(
+                        (amount_ind_dic[id]['amount'] if isinstance(amount_ind_dic[id], dict) else amount_ind_dic[id])
+                        for id in combination_ids
+                    )
                     # combination_sums[tuple(combination_ids)] = combination_sum
                     if combination_sum > Decimal(str(-sum_amount)):
                         break
@@ -1141,7 +1300,10 @@ class AllocateAction:
         # 如果连续
         if idx_list == list(range(idx_list[0], idx_list[-1] + 1)):
             # 如果连续，对金额进行求和
-            total_amount = sum(amount_ind_dic[idx] for idx in idx_list)
+            total_amount = sum(
+                (amount_ind_dic[idx]['amount'] if isinstance(amount_ind_dic[idx], dict) else amount_ind_dic[idx])
+                for idx in idx_list
+            )
 
             if total_amount > Decimal(str(-sum_amount)):
                 return None
@@ -1541,6 +1703,7 @@ class AllocateAction:
                             , ag.customer_name
                             , ag.currency
                             , ag.pay_date
+                            , ag.doc_date
                             , ag.so_standard
                             , ag.aloc_comments
                             , ag.amount_oa
@@ -1590,6 +1753,7 @@ class AllocateAction:
                                 ag.customer_name,
                                 ag.currency,
                                 ag.pay_date,
+                                ag.doc_date,
                                 ag.so_standard,
                                 ag.aloc_comments,
                                 ag.amount_oa,
@@ -1688,7 +1852,13 @@ class AllocateAction:
         结果标记
         """
         # apgid = ' '.join(hits_rows["aloc_group"].astype(str).unique())
-        hits_rows["aloc_group"] = g_id
+        # hits_rows["aloc_group"] = g_id
+        hits_rows["aloc_group"] = hits_rows["aloc_group"].fillna("").astype(str)
+        hits_rows["aloc_group"] = hits_rows["aloc_group"].apply(
+            lambda x: str(g_id) if x == "" else f"{x}/{g_id}"
+        )
+
+
         hits_rows["amount_diff"] = amount_diff
         # hits_rows["aloc_status"] = result_comments
         hits_rows["aloc_status"] = self.set_aloc_status(result_comments)
@@ -1739,237 +1909,3 @@ class AllocateAction:
             + "_"
             + df["invoice_no"].astype(str)
         )
-
-
-    def hold_combination_sums_optimized(self, amount_ind_dic, sum_amount, combination_sums):
-        """
-        优化的金额组合匹配算法 - 解决组合爆炸问题
-        
-        优化策略：
-        1. 预筛选：移除明显不可能的金额
-        2. 动态规划：子集和问题的DP解法
-        3. 启发式搜索：优先搜索最有希望的组合
-        4. 随机采样：对大数据集进行采样
-        5. 多阶段搜索：从小到大逐步扩展
-        """
-        target = Decimal(str(-sum_amount))
-        tolerance = Decimal(str(self.tole))
-        
-        # 方案1：预筛选 + 动态规划（推荐）
-        result = self._dp_subset_sum_match(amount_ind_dic, target, tolerance)
-        if result:
-            return result
-        
-        # 方案2：启发式搜索
-        result = self._heuristic_search(amount_ind_dic, target, tolerance)
-        if result:
-            return result
-            
-        # 方案3：随机采样（兜底方案）
-        if len(amount_ind_dic) > 100:
-            result = self._random_sampling_search(amount_ind_dic, target, tolerance)
-            if result:
-                return result
-        
-        return None
-
-    def _dp_subset_sum_match(self, amount_ind_dic, target, tolerance):
-        """
-        使用动态规划解决子集和问题
-        时间复杂度: O(n * target * precision)
-        """
-        amounts = list(amount_ind_dic.items())
-        n = len(amounts)
-        
-        # 预筛选：移除明显不可能的金额
-        amounts = [(id, amt) for id, amt in amounts 
-                if amt <= target + tolerance and amt >= -(target + tolerance)]
-        
-        if not amounts:
-            return None
-        
-        # 为了处理小数，将所有金额乘以精度倍数转换为整数
-        precision = 10000
-        int_target = int(target * precision)
-        int_tolerance = int(tolerance * precision)
-        int_amounts = [(id, int(amt * precision)) for id, amt in amounts]
-        
-        # DP表：dp[i][j] 表示前i个金额能否组成和为j，存储组合路径
-        # 由于金额可能为负，需要偏移
-        max_sum = sum(max(0, amt) for _, amt in int_amounts)
-        min_sum = sum(min(0, amt) for _, amt in int_amounts)
-        offset = -min_sum
-        
-        # 限制DP表大小，避免内存爆炸
-        if max_sum - min_sum > 10000000:  # 限制在1000万以内
-            return None
-        
-        dp = {}  # 使用字典代替二维数组节省内存
-        dp[(0, offset)] = []
-        
-        for i, (item_id, amount) in enumerate(int_amounts):
-            new_dp = dp.copy()
-            for (prev_i, sum_val), path in dp.items():
-                if prev_i == i:
-                    new_sum = sum_val + amount
-                    if new_sum >= 0 and new_sum <= max_sum - min_sum + offset:
-                        new_path = path + [item_id]
-                        if (i + 1, new_sum) not in new_dp or len(new_path) < len(new_dp[(i + 1, new_sum)]):
-                            new_dp[(i + 1, new_sum)] = new_path
-            dp = new_dp
-        
-        # 查找目标范围内的解
-        for (i, sum_val), path in dp.items():
-            actual_sum = sum_val - offset
-            if abs(actual_sum - int_target) <= int_tolerance:
-                amount_dif = abs(Decimal(actual_sum) / precision - target)
-                return [(cid, amount_dif) for cid in path]
-        
-        return None
-
-    def _heuristic_search(self, amount_ind_dic, target, tolerance):
-        """
-        启发式搜索：基于贪心 + 回溯
-        优先选择最接近目标的金额组合
-        """
-        amounts = list(amount_ind_dic.items())
-        amounts.sort(key=lambda x: abs(x[1] - target))  # 按接近程度排序
-        
-        def backtrack(index, current_sum, current_path, max_depth=6):
-            if len(current_path) > max_depth:
-                return None
-                
-            if abs(current_sum - target) <= tolerance:
-                amount_dif = abs(current_sum - target)
-                return [(cid, amount_dif) for cid in current_path]
-            
-            if index >= len(amounts) or current_sum > target + tolerance:
-                return None
-            
-            # 剪枝：如果剩余所有正数都加上也达不到目标
-            remaining_positive = sum(max(0, amt) for _, amt in amounts[index:])
-            if current_sum + remaining_positive < target - tolerance:
-                return None
-            
-            # 选择当前金额
-            item_id, amount = amounts[index]
-            result = backtrack(index + 1, current_sum + amount, 
-                            current_path + [item_id], max_depth)
-            if result:
-                return result
-            
-            # 不选择当前金额
-            return backtrack(index + 1, current_sum, current_path, max_depth)
-        
-        return backtrack(0, Decimal('0'), [])
-
-    def _random_sampling_search(self, amount_ind_dic, target, tolerance, 
-                            max_samples=10000, max_combination_size=8):
-        """
-        随机采样搜索：对大数据集进行随机采样
-        """
-        amounts = list(amount_ind_dic.items())
-        
-        best_match = None
-        best_diff = float('inf')
-        
-        for _ in range(max_samples):
-            # 随机选择组合大小
-            combo_size = random.randint(1, min(max_combination_size, len(amounts)))
-            
-            # 随机选择金额
-            selected = random.sample(amounts, combo_size)
-            
-            combo_sum = sum(amt for _, amt in selected)
-            diff = abs(combo_sum - target)
-            
-            if diff <= tolerance:
-                return [(cid, diff) for cid, _ in selected]
-            
-            if diff < best_diff:
-                best_diff = diff
-                best_match = selected
-        
-        # 如果没有找到精确匹配，但有较好的近似解
-        if best_match and best_diff <= tolerance * 2:  # 放宽一点容差
-            return [(cid, best_diff) for cid, _ in best_match]
-        
-        return None
-
-    def _multi_stage_search(self, amount_ind_dic, target, tolerance):
-        """
-        多阶段搜索：先搜索小组合，再逐步扩大
-        结合时间限制，避免无限搜索
-        """
-        import time
-        start_time = time.time()
-        timeout = 5  # 5秒超时
-        
-        amounts = list(amount_ind_dic.items())
-        # 按绝对值排序，优先考虑大金额
-        amounts.sort(key=lambda x: abs(x[1]), reverse=True)
-        
-        max_stage = min(8, len(amounts))
-        
-        for stage in range(1, max_stage + 1):
-            if time.time() - start_time > timeout:
-                break
-                
-            # 每个阶段只搜索固定大小的组合
-            for combo in combinations(amounts[:min(50, len(amounts))], stage):
-                if time.time() - start_time > timeout:
-                    break
-                    
-                combo_sum = sum(amt for _, amt in combo)
-                if abs(combo_sum - target) <= tolerance:
-                    amount_dif = abs(combo_sum - target)
-                    return [(cid, amount_dif) for cid, _ in combo]
-        
-        return None
-
-    # 智能选择策略的主函数
-    def hold_combination_sums_smart(self, amount_ind_dic, sum_amount, combination_sums):
-        """
-        智能选择最优策略的主函数
-        """
-        data_size = len(amount_ind_dic)
-        target = Decimal(str(-sum_amount))
-        tolerance = Decimal(str(self.tole))
-        
-        # 根据数据规模选择最优策略
-        if data_size <= 20:
-            # 小数据集：使用原始方法（轻微优化）
-            return self._optimized_original_method(amount_ind_dic, sum_amount, combination_sums)
-        elif data_size <= 100:
-            # 中等数据集：使用启发式搜索
-            return self._heuristic_search(amount_ind_dic, target, tolerance)
-        else:
-            # 大数据集：使用随机采样
-            return self._random_sampling_search(amount_ind_dic, target, tolerance)
-
-    def _optimized_original_method(self, amount_ind_dic, sum_amount, combination_sums):
-        """
-        轻微优化的原始方法：增加更多剪枝
-        """
-        target = Decimal(str(-sum_amount))
-        tolerance = Decimal(str(self.tole))
-        
-        # 按绝对值排序，优先尝试大金额
-        items = sorted(amount_ind_dic.items(), key=lambda x: abs(x[1]), reverse=True)
-        
-        # 只搜索最多6个金额的组合
-        max_combo_size = min(6, len(items))
-        
-        for combo_size in range(1, max_combo_size + 1):
-            for combo in combinations(items, combo_size):
-                combo_sum = sum(amt for _, amt in combo)
-                
-                # 早停条件：和已经太大
-                if combo_sum > target + tolerance:
-                    continue
-                    
-                if abs(combo_sum - target) <= tolerance:
-                    amount_dif = abs(combo_sum - target)
-                    return [(cid, amount_dif) for cid, _ in combo]
-        
-        return None

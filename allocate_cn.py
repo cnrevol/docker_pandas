@@ -427,40 +427,68 @@ class ChinaAllocateAction(AllocateAction):
         # result_comment = "Term Sequential match"
         return self.find_seq_match(src_nosin_row, dest_sin_df, result_comment)
 
-    def find_seq_match(self,src_nosin_row, dest_sin_df, result_comment):
+    def find_seq_match(self, src_nosin_row, dest_sin_df, result_comment):
         """
-        顺序销账的实现
+        顺序销账的实现（兼容旧接口）：
+        - 会收集所有可能的匹配（不在第一次匹配时直接 break）
+        - 返回值 **始终** 是 pandas.DataFrame：
+            - 无匹配 -> 返回空 DataFrame()
+            - 只有一个匹配 -> 返回包含 src 行 + 命中行 的 DataFrame（兼容旧逻辑）
+            - 多个匹配 -> 返回把每个匹配（每个匹配中都包含 src 行 + 命中行）按行 concat 后的 DataFrame
         """
-        sum_list=[]
-        dest_sin_df_cid = dest_sin_df[dest_sin_df["customer_id"]==src_nosin_row["customer_id"]]
+        sum_list = []
+        dest_sin_df_cid = dest_sin_df[dest_sin_df["customer_id"] == src_nosin_row["customer_id"]]
         pan_amt = Decimal(str(src_nosin_row["amount"]))
         sin_amt = Decimal("0")
         amount_diff = Decimal("0")
-        hits_rows = pd.DataFrame()
+
+        results1 = []  # 存放每个匹配（每个元素是一个 DataFrame）
+        results2 = []
         for ind_d, row_d in dest_sin_df_cid.iterrows():
             sin_r_amt = Decimal(str(row_d["amount"]))
-            sin_amt = sin_amt + Decimal(str(row_d["amount"]))
+            sin_amt = sin_amt + sin_r_amt
             sum_list.append(ind_d)
-            # TODO 添加顺序判定，时间pay_date，cn_index先后关系
-            if abs(pan_amt + sin_r_amt) <= Decimal(str(self.tole)):
-                hits_rows = dest_sin_df_cid.loc[ind_d]
-                hits_rows = pd.concat([pd.DataFrame([src_nosin_row]), pd.DataFrame([hits_rows])]).reset_index(drop=True)
-                self.set_apply_result_comments(hits_rows, result_comment, amount_diff)
-                break
 
-            if abs(pan_amt + sin_amt) <= Decimal(str(self.tole)):
-                # 合计相等，match，保存结果
+            # 单行命中（当前行就可配平）
+            if abs(pan_amt + sin_r_amt) <= Decimal(str(self.tole)):
+                hits_rows = dest_sin_df_cid.loc[[ind_d]]
+                hits_rows = pd.concat([pd.DataFrame([src_nosin_row]), hits_rows]).reset_index(drop=True)
+                # 设置结果注释（保持原行为）
+                # self.set_apply_result_comments(hits_rows, result_comment, amount_diff)
+                results1.append(hits_rows)
+                # 不再 break，继续查找可能的其它匹配
+
+            # 累积多行命中
+            elif abs(pan_amt + sin_amt) <= Decimal(str(self.tole)):
                 amount_diff = abs(pan_amt + sin_amt)
                 hits_rows = dest_sin_df_cid.loc[sum_list]
                 hits_rows = pd.concat([pd.DataFrame([src_nosin_row]), hits_rows]).reset_index(drop=True)
                 self.set_apply_result_comments(hits_rows, result_comment, amount_diff)
+                results2.append(hits_rows)
                 break
-            
+
+            # 如果累积超过目标，则清空索引列表（保持原逻辑：只清空 sum_list）
             if sin_amt > Decimal(str(-pan_amt)):
-                # 超出的情况下，清空临时list
-                sum_list=[]
-                # break
-        return hits_rows
+                sum_list = []
+                # 保持 sin_amt 不变（与原代码一致），避免改变逻辑行为
+
+        df1 = pd.DataFrame()
+        if results1:
+            df1 = pd.concat(results1, ignore_index=True)
+            self.set_apply_result_comments(df1, result_comment, amount_diff)
+        df2 = pd.DataFrame()
+        if results2:
+            df2 = pd.concat(results2, ignore_index=True)
+
+        if df1.empty and df2.empty:
+            return pd.DataFrame()
+        elif df1.empty:
+            return df2
+        elif df2.empty:
+            return df1
+        else:
+            return pd.concat([df1, df2], ignore_index=True)
+
 
     def find_sum_match(self, row, df):
         """

@@ -14,6 +14,8 @@ import paramiko
 import time
 from typing import Dict, Tuple
 import random
+import re
+from typing import Optional, List
 
 from exceptions import CustomException
 from global_state import GlobalState
@@ -26,7 +28,11 @@ class FileUtil:
     POST_TEMPLATE = "Posting output.xlsx"
     ALOC_TEMPLATE = "Allocation output.xlsx"
     # when to server change to 0
-    is_local = 1
+    is_local = 0
+
+    # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
+    FILES_DIR = os.path.join(BASE_DIR, "files")
 
     def __init__(self,state:GlobalState=None,logger=None):
         self.ccos,_ = self.create_cos()
@@ -37,11 +43,13 @@ class FileUtil:
         """
         取得路径
         """
-        script_path = os.path.abspath(sys.argv[0])
-        script_directory = os.path.dirname(script_path)
-        script_directory = os.path.join(script_directory, "files", subdir)
+        return os.path.join(self.FILES_DIR, subdir)
+    
+        # script_path = os.path.abspath(sys.argv[0])
+        # script_directory = os.path.dirname(script_path)
+        # script_directory = os.path.join(script_directory, "files", subdir)
 
-        return script_directory
+        # return script_directory
 
     def create_cos(self):
         """
@@ -67,6 +75,20 @@ class FileUtil:
         )
         return cos, bucket
     
+    
+
+    @staticmethod
+    def env_constructor(loader, node):
+        pattern = re.compile(r"\$\{([^}^{]+)\}")  # 匹配 ${VAR_NAME}
+        value = loader.construct_scalar(node)
+        matches = pattern.findall(value)
+        for match in matches:
+            env_value = os.getenv(match, "")
+            value = value.replace(f"${{{match}}}", env_value)
+        return value
+
+    # 在类定义阶段就注册好
+    yaml.SafeLoader.add_constructor("tag:yaml.org,2002:str", env_constructor.__func__)
     
     def load_app_config_from_yaml(self,config_path="app_config.yml",def_cont="cos"):
         """
@@ -606,7 +628,14 @@ class FileUtil:
             self.logger.error(f"Error checking file stability: {str(e)}")
             return False
 
-    def download_sftp_to_cos(self, region: str, user_type: str = 'ifp', max_retries: int = 3, retry_delay: float = 1.0) -> Dict[str, list]:
+    def download_sftp_to_cos(
+        self, 
+        region: str, 
+        user_type: str = 'ifp', 
+        max_retries: int = 3, 
+        retry_delay: float = 1.0,
+        prefixes: Optional[List[str]] = None   # 新增可选参数
+    ) -> Dict[str, list]:
         """
         从SFTP下载文件到COS，成功后删除SFTP上的源文件
         Args:
@@ -614,6 +643,7 @@ class FileUtil:
             user_type: SFTP用户类型
             max_retries: 最大重试次数
             retry_delay: 重试间隔时间（秒）
+            prefixes: 文件名前缀数组，用于过滤需要下载的文件（可选）
         Returns:
             Dict: 包含下载文件信息的字典
         """
@@ -629,6 +659,14 @@ class FileUtil:
             try:
                 # 获取源目录下的所有文件
                 files = sftp.listdir(source_path)
+
+                # 如果指定了前缀，做过滤
+                if prefixes:
+                    files = [
+                        f for f in files 
+                        if any(f.startswith(prefix) for prefix in prefixes)
+                    ]
+                    self.logger.info(f"Filtered files with prefixes {prefixes}: {files}")
                 
                 for filename in files:
                     remote_path = f"{source_path}/{filename}"

@@ -52,7 +52,7 @@ class BpodLogger:
 
         # 错误日志
         error_handler = TimedRotatingFileHandler(
-            f"{self.log_file_path}/error.log",
+            f"{self.log_file_path}/appexp.log",
             when="midnight",
             interval=1,
             backupCount=10,

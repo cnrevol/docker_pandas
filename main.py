@@ -6,7 +6,6 @@ from utils.logger import BpodLogger
 from post_common import PostAction
 # from move_file_common import MoveFileAction
 from allocate_common import AllocateAction
-from allocate_commonx import AllocateActionx
 from allocate_cn import ChinaAllocateAction
 from allocate_run import AllocateFactory
 from output_common import OutputFileAction
@@ -56,9 +55,9 @@ if __name__ == "__main__":
 
 
     # 输出文件
-    output_action = OutputFileAction("",log_instance)
-    # output_action.output_alloc_data("CN")
-    output_action.output_post_data("CN")
+    # output_action = OutputFileAction("",log_instance)
+    # # output_action.output_alloc_data("NZ")
+    # output_action.output_post_data("CN")
 
     # action = PostAction('Common post action', log_instance)
 
@@ -93,20 +92,25 @@ if __name__ == "__main__":
     # # MY_AR Aging | ASW650
     # MY
 
-    # load_action = LoadAction('Malaysia','','MY',log_instance)
+    load_action = LoadAction('Malaysia','','MY',log_instance)
     # # # load_action.read_region_all_file("batch user")
+
+    
+    load_action.read_pfile_to_table('MY','BANK BOA')
 
     # load_action.read_pfile_to_table('MY','Invoice weekly Report')
     # load_action.read_pfile_to_table('MY','MALAYSIA')
-    # load_action.read_pfile_to_table('MY','Aging')
-    # load_action.read_pfile_to_table('MY','ASW650')
+    load_action.read_pfile_to_table('MY','Aging')
+    load_action.read_pfile_to_table('MY','ASW650')
     # load_action.read_pfile_to_table('MY','BANK HSBC')
     # load_action.read_pfile_to_table('MY','BANK MBB')
     # load_action.read_pfile_to_table('MY','BANK M2U')
 
         
-    # action = PostAction('Malaysia post action', log_instance)
+    action = PostAction('Malaysia post action', log_instance)
     
+    action.execute_posting('MY','BOA','MYR')
+
     # action.execute_posting('MY','HSBC','MYR')
     # action.execute_posting('MY','MBB','MYR')
     # action.execute_posting('MY','M2U','MYR')
@@ -151,7 +155,8 @@ if __name__ == "__main__":
     
     # SG
     
-    # load_action = LoadAction('Singapore','','SG',log_instance)
+    load_action = LoadAction('Singapore','','SG',log_instance)
+    # load_action.read_region_all_file(action_user="batch_system_test")
 
     # load_action.read_pfile_to_table('SG','Held Order')
     # load_action.read_pfile_to_table('SG','Released Order')
@@ -161,16 +166,20 @@ if __name__ == "__main__":
     # load_action.read_pfile_to_table('SG','Open Day')
     # load_action.read_pfile_to_table('SG','Rate Monthly')
 
-    # # load_action.read_file_to_table()
+    # load_action.read_file_to_table()
 
     # load_action.read_pfile_to_table('MY','MY& SG daily tracker')
 
     # load_action.read_pfile_to_table('SG','ASW650')
     # load_action.read_pfile_to_table('SG','Aging')
-    # load_action.read_pfile_to_table('SG','BOA TRACKER')
-    # load_action.read_pfile_to_table('SG','SG whitelist')
-    # load_action.read_pfile_to_table('SG','SG Working')
 
+    # load_action.read_pfile_to_table('SG','BOA TRACKER')
+    # # load_action.read_pfile_to_table('SG','SG whitelist')
+
+    # # load_action.read_pfile_to_table('SG','SG Working')
+
+    # load_action.read_pfile_to_table('SG','BANK BOA USD')
+    # load_action.read_pfile_to_table('SG','BANK BOA SGD')
     # load_action.read_pfile_to_table('SG','BANK BOA KRW')
     # load_action.read_pfile_to_table('SG','BANK HSBC USD')
     # load_action.read_pfile_to_table('SG','BANK HSBC THB')
@@ -179,6 +188,8 @@ if __name__ == "__main__":
     # action = PostAction('Common post action', log_instance)
     # action.excute_region_posting('SG')
     
+    # action.execute_posting('SG','BOA','USD')
+    # action.execute_posting('SG','BOA','SGD')
     # action.execute_posting('SG','BOA','KRW')
     # action.execute_posting('SG','HSBC','THB')
     # action.execute_posting('SG','HSBC','SGD')
@@ -205,6 +216,9 @@ if __name__ == "__main__":
     # AU
 
     # load_action = LoadAction('Australia','','AU',log_instance)
+# 
+
+    # load_action.read_pfile_to_table('AU','BANK BOA')
 
     # load_action.read_pfile_to_table('AU','Invoice weekly Report')
 
@@ -214,7 +228,7 @@ if __name__ == "__main__":
     # load_action.read_pfile_to_table('AU','Book2')
     # load_action.read_pfile_to_table('AU','AU Customer Master Data')
     # load_action.read_pfile_to_table('AU','ASW650')
-    # load_action.read_pfile_to_table('AU','AUREC') 
+    # load_action.read_pfile_to_table('AU','output_AU_')
     
     # # # # # # load_action = LoadAction('Australia','AU Customer Master Data','AU',log_instance)
     # # # # # # load_action.read_file_to_table()
@@ -236,9 +250,9 @@ if __name__ == "__main__":
     # load_action.read_pfile_to_table('NZ','NZ ASB')
     # load_action.read_pfile_to_table('NZ','Book3')
     # # load_action.read_pfile_to_table('NZ','NZ Customer Master Data')
-    
+    # load_action.read_pfile_to_table('NZ','Aging')
     # load_action.read_pfile_to_table('NZ','ASW650')
-    # # load_action.read_pfile_to_table('NZ','ANZ Cash Application Tracker')
+    # load_action.read_pfile_to_table('NZ','ANZ Cash Application Tracker')
 
     # # load_action.read_pfile_to_table('NZ','NZREC')
     
@@ -252,23 +266,22 @@ if __name__ == "__main__":
     # IN ===============
 
     # load_action = LoadAction('India','','IN',log_instance)
-
     # load_action.read_pfile_to_table('IN','BANK BOA','loaduser')
 
-    # # # # # # # load_action.read_region_all_file()
-    # load_action.read_pfile_to_table('IN','open item',action_user="batchuser")
-    # load_action.read_pfile_to_table('IN','ASW650')
-    # BANK BOA
+    # # # # # # # # load_action.read_region_all_file()
+    # # load_action.read_pfile_to_table('IN','open item',action_user="batchuser")
+    # # load_action.read_pfile_to_table('IN','ASW650')
+    # # BANK BOA
     
-    # load_action.read_pfile_to_table('IN','History Tracker','ind load user')
-    # load_action.read_pfile_to_table('IN','Receivable')
-    # # # # # action = PostAction('Common post action', log_instance)
+    # # load_action.read_pfile_to_table('IN','History Tracker','ind load user')
+    # # load_action.read_pfile_to_table('IN','Receivable')
+    # # # # # # action = PostAction('Common post action', log_instance)
 
     # action = PostActionIndia('Common post action', log_instance)
     # action.execute_posting('IN','BOA','INR','postuser')
 
     # load_action.read_region_all_file()
-    # load_action.read_pfile_to_table('IN','Aging')
+    # load_action.read_pfile_to_table('IN','Aging',action_user="batch")
     # load_action.read_pfile_to_table('IN','ASW650')
     # load_action.read_pfile_to_table('IN','INR BOA New Account')
     # load_action.read_pfile_to_table('IN','History Tracker')
@@ -277,16 +290,17 @@ if __name__ == "__main__":
 
 
     # CN
-    load_action = LoadAction('PRC','','CN',log_instance)
+    # load_action = LoadAction('PRC','','CN',log_instance)
 
 
-    # load_action.read_pfile_to_table('CN','Aging')
+    # # load_action.read_pfile_to_table('CN','Aging')
+    
     # load_action.read_pfile_to_table('CN','BANK ALIPAY')
-    # load_action.read_pfile_to_table('CN','ADV-未解单')
-    # load_action.read_pfile_to_table('CN','ASW650')
+    # # load_action.read_pfile_to_table('CN','ADV-未解单')
+    # # load_action.read_pfile_to_table('CN','ASW650')
 
     # load_action.read_pfile_to_table('CN','BANK CCB')
-    # load_action.read_pfile_to_table('CN','Sales code')
+    # # load_action.read_pfile_to_table('CN','Sales code')
     # load_action.read_pfile_to_table('CN','BANK COD')
     # load_action.read_pfile_to_table('CN','Open Customer Back Orders')
 
@@ -302,7 +316,7 @@ if __name__ == "__main__":
     # # # 
 
     # # # post
-    action = PostAction('Common post action', log_instance)
+    # action = PostAction('Common post action', log_instance)
 
     # action.execute_posting('CN','CCB','CNY')
 
@@ -333,7 +347,7 @@ if __name__ == "__main__":
 
     # TW
 
-    load_action = LoadAction('TaiWan','','TW',log_instance)
+    # load_action = LoadAction('TaiWan','','TW',log_instance)
 
     # load_action.read_pfile_to_table('TW','BANK HSBC USD')
     # load_action.read_pfile_to_table('TW','BANK HSBC TWD')
@@ -387,10 +401,13 @@ if __name__ == "__main__":
     # alloc_factory.register("AllocateAction", AllocateAction)
     # alloc_factory.register("ChinaAllocateAction", ChinaAllocateAction)
 
-    # action = alloc_factory.allocate_get("ChinaAllocateAction", "ChinaAction", log_instance)
-    # action.excute_region_allocate('CN')
+
+    # # action = alloc_factory.allocate_get("ChinaAllocateAction", "ChinaAction", log_instance)
+    # # action.excute_region_allocate('CN',action_user='batch')
     # action = alloc_factory.allocate_get("AllocateAction", "commonAction", log_instance)
-    # action.excute_region_allocate('SG')
+    # action.excute_region_allocate('AU',action_user='batch')
+
+
 
 
     # eact = ExecuteAction(log_instance)

@@ -335,20 +335,20 @@ class PostAction:
                         if rule_item.rule1[self.R_TRIM] == "rem":
                             if s_val == "" or (s_val is None):
                                 self.set_srcdf_const(src_df, rule_item, ind_s, extract)
-                                self.logger.debug(f"Const set row:[{ind_s}] val:[{extract}]")
+                                self.logger.debug(f"Const set row:[{ind_s}] filed:[{rule_item.src_field1}] val:[{extract}]")
                                 # src_df.loc[ind_s, 'post_text'] = result_comment
                         elif rule_item.rule1[self.R_TRIM] == "rep":
                             self.set_srcdf_const(src_df, rule_item, ind_s, extract)
-                            self.logger.debug(f"Const set row:[{ind_s}] val:[{extract}]")
+                            self.logger.debug(f"Const set row:[{ind_s}] filed:[{rule_item.src_field1}] val:[{extract}]")
                         elif rule_item.rule1[self.R_TRIM] == "cond":
                             self.set_df_cond_const(src_df, rule_item, ind_s, extract)
-                            self.logger.debug(f"Const condition set row:[{ind_s}] val:[{extract}]")
+                            self.logger.debug(f"Const condition set row:[{ind_s}] filed:[{rule_item.src_field1}] val:[{extract}]")
                         elif rule_item.rule1[self.R_TRIM] == "incld":
                             self.set_df_include_const(src_df, rule_item, ind_s, extract)
-                            self.logger.debug(f"Const include set row:[{ind_s}] val:[{extract}]")
+                            self.logger.debug(f"Const include set row:[{ind_s}] filed:[{rule_item.src_field1}] val:[{extract}]")
                         elif rule_item.rule1[self.R_TRIM] == "field":
                             self.set_df_field_const(src_df, rule_item, ind_s, extract)
-                            self.logger.debug(f"Const field set row:[{ind_s}] val:[{extract}]")
+                            self.logger.debug(f"Const field set row:[{ind_s}] filed:[{rule_item.src_field1}] val:[{extract}]")
                     
         return src_df
 
@@ -651,6 +651,8 @@ class PostAction:
         extract_val, vl = self.extract_src_value(src_content, rule_item.rule1)
         if extract_val:
             rst_df = self.check_values_in_list(dst_df, rule_item.dst_field1, vl)
+            if (rst_df.empty):
+                self.set_src_df_add_item(src_df=src_df, ind_s=ind_s,rule_item=rule_item,extract_val=extract_val)
             for ind_d, row_d in rst_df.iterrows():
                 self.set_row_field(
                     src_df,
@@ -974,7 +976,7 @@ class PostAction:
             if result_set_flg:
                 # src_df.loc[ind_s, 'post_text'] = result_comment
                 src_df = self.set_match_result(
-                    src_df=src_df, ind_s=ind_s, post_text=rule_item.result_comment+ " cfd: " + rule_item.confidence, ipf_status=sts
+                    src_df=src_df, ind_s=ind_s, post_text=self.concat_if_not_empty(rule_item.result_comment, " cfd: " , rule_item.confidence), ipf_status=sts
                 )
                 # custom_found
         return src_df
@@ -1042,7 +1044,7 @@ class PostAction:
                 src_df = self.set_match_result(
                     src_df=src_df,
                     ind_s=ind_s,
-                    post_text=rule_item.result_comment+ " cfd: " + rule_item.confidence,
+                    post_text=self.concat_if_not_empty(rule_item.result_comment, " cfd: " , rule_item.confidence),
                     ipf_status=ipf_sts,
                 )
         return src_df
@@ -1210,7 +1212,7 @@ class PostAction:
                             payment   , currency   , 
                             customer_name_cn   , 
                             sales_code   , sales_name  
-                            FROM {table_name} WHERE trim(currency) = %s order by otc_region ='SG' desc """
+                            FROM {table_name} WHERE trim(currency) = %s and otc_region ='SG' """
             parameters = (currency,)
         elif (table_name.lower() == "bl_customer_master") and (self.region =='CN'):
             sql_query = f"""SELECT customer_id   ,
@@ -1964,11 +1966,20 @@ class PostAction:
                 src_df = self.set_match_result(
                             src_df=src_df,
                             ind_s=ind_s,
-                            post_text=rule_item.result_comment+ " cfd: " + rule_item.confidence,
+                            post_text=self.concat_if_not_empty(rule_item.result_comment, " cfd: " ,rule_item.confidence),
                             ipf_status=ipf_sts,
                             )
         return src_df
 
+
+    def concat_if_not_empty(self,base, sep, extra):
+        """
+        当 base 不为空时，返回 base + sep + extra 的拼接字符串；
+        当 base 为空（None 或 空字符串）时，返回空字符串。
+        """
+        if base:
+            return f"{base}{sep}{extra}"
+        return ""
 
     def get_comm_defines(self):
         """
@@ -1983,3 +1994,35 @@ class PostAction:
         self.thrd_confidence = self.comm_util.get_com_def_by_name(com_df,"TRHD_MATCH")
         self.au_trip=self.comm_util.get_com_def_by_name(com_df,"AU_TRIP")
         self.au_trim_d=self.comm_util.get_com_def_by_name(com_df,"AU_TRIM_D")
+
+    def set_src_df_add_item(self, src_df: pd.DataFrame, ind_s, rule_item, extract_val):
+        """
+        设置 src_df 指定行的指定字段值
+
+        参数：
+            src_df     : pandas.DataFrame，要更新的 DataFrame
+            ind_s      : 行索引（可以是 int 或者 index label）
+            rule_item  : RuleItem 对象，包含 add_fields、dst_field1 等定义
+            extract_val: 要设定的值
+        """
+        # 解析 add_fields，可能是逗号分隔的字符串
+        if rule_item.add_fields:
+            if isinstance(rule_item.add_fields, str):
+                fields = [f.strip() for f in rule_item.add_fields.split(",")]
+            else:
+                # 假设不是字符串时，直接转 list
+                fields = list(rule_item.add_fields)
+        else:
+            fields = []
+
+        # 校验 dst_field1 是否在 add_fields 中（或者相等）
+        if rule_item.dst_field1 in fields or rule_item.dst_field1 == rule_item.add_fields:
+            for field in fields:
+                if field in src_df.columns:
+                    src_df.at[ind_s, field] = extract_val
+                    self.logger.debug(
+                        f"set_src_df_add_item: row={ind_s}, field={field}, value={extract_val}"
+                    )
+               
+        
+        return src_df
