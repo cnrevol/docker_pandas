@@ -14,7 +14,13 @@ RUN apt-get update && apt-get install -y \
 RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-RUN pip install --upgrade pip setuptools wheel build
+# ---- 在这里插入升级 pip（替换掉系统 pip-whl）----
+RUN pip install --upgrade pip setuptools wheel
+
+# ---- 删除有 CVE 的系统 pip-whl（可安全删除）----
+RUN apt-get update && apt-get remove -y python3-pip-whl \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
