@@ -92,16 +92,16 @@ if __name__ == "__main__":
     # # MY_AR Aging | ASW650
     # MY
 
-    load_action = LoadAction('Malaysia','','MY',log_instance)
-    # # # load_action.read_region_all_file("batch user")
+    # load_action = LoadAction('Malaysia','','MY',log_instance)
+    # # # # load_action.read_region_all_file("batch user")
 
     
-    load_action.read_pfile_to_table('MY','BANK BOA')
+    # load_action.read_pfile_to_table('MY','BANK BOA')
 
-    # load_action.read_pfile_to_table('MY','Invoice weekly Report')
-    # load_action.read_pfile_to_table('MY','MALAYSIA')
-    load_action.read_pfile_to_table('MY','Aging')
-    load_action.read_pfile_to_table('MY','ASW650')
+    # # load_action.read_pfile_to_table('MY','Invoice weekly Report')
+    # # load_action.read_pfile_to_table('MY','MALAYSIA')
+    # load_action.read_pfile_to_table('MY','Aging')
+    # load_action.read_pfile_to_table('MY','ASW650')
     # load_action.read_pfile_to_table('MY','BANK HSBC')
     # load_action.read_pfile_to_table('MY','BANK MBB')
     # load_action.read_pfile_to_table('MY','BANK M2U')
@@ -372,9 +372,9 @@ if __name__ == "__main__":
 
     # load_action.read_pfile_to_table('CN','AR Outstanding')
 
-    # load_action = LoadAction('Singapore','ASW650','SG',log_instance)
-    # load_action.read_pfile_to_table('SG','ASW650')
-
+    load_action = LoadAction('Singapore','ASW650','SG',log_instance)
+    # load_action.read_pfile_to_table('SG','ASW650')BANK HSBC PHP
+    load_action.read_pfile_to_table('SG','BANK HSBC PHP')
     # Allocate
 
     # alloc_action = AllocateAction('XX',log_instance)

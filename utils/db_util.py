@@ -53,6 +53,11 @@ class Database:
         # Create an SQLAlchemy engine
         # engine = create_engine(self.init_engine_constr())
 
+        # Convert list to tuple for psycopg2 compatibility with pandas 2.1.1+
+        # psycopg2 requires parameters as tuples, not lists
+        if params is not None and isinstance(params, list):
+            params = tuple(params)
+
         # Use the engine with pd.read_sql_query
         result = pd.read_sql_query(query, self.engine, params=params)
         self.logger.debug(f"read_sql_query successful. sql: {query}, Params: {params}")
@@ -63,6 +68,10 @@ class Database:
         执行登录
         """
         try:
+            # Convert list to tuple for psycopg2 compatibility
+            if params is not None and isinstance(params, list):
+                params = tuple(params)
+            
             # 获取数据库连接
             with self.engine.connect() as connection:
                 # 执行插入操作
@@ -81,6 +90,10 @@ class Database:
         执行更新
         """
         try:
+            # Convert list to tuple for psycopg2 compatibility
+            if params is not None and isinstance(params, list):
+                params = tuple(params)
+            
             # 获取数据库连接
             with self.engine.connect() as connection:
                 # 执行更新操作
@@ -98,6 +111,10 @@ class Database:
         """
         执行查询
         """
+        # Convert list to tuple for psycopg2 compatibility
+        if params is not None and isinstance(params, list):
+            params = tuple(params)
+        
         # Use the engine with pd.read_sql_query
         result = pd.read_sql_query(query, self.engine, params=params)
         self.logger.debug(f"read_sql_query . sql: {query}, Params: {params}")
