@@ -1,9 +1,13 @@
-FROM ubuntu:24.04.4
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Step 1: 安装 Python + 构建工具（构建阶段）
+# Step 1: 创建非 root 用户（尽早创建）
+RUN groupadd -g 999 appgroup && \
+    useradd -m -u 999 -g appgroup appuser
+
+# Step 2: 安装 Python + 构建工具
 RUN apt-get update && apt-get install -y \
     python3.12 python3.12-venv python3.12-dev \
     build-essential gcc g++ \
@@ -11,27 +15,32 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Step 2: 创建虚拟环境
-RUN python3.12 -m venv /opt/venv
+# Step 3: 创建虚拟环境并设置权限
+RUN python3.12 -m venv /opt/venv && \
+    chown -R appuser:appgroup /opt/venv
+
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 升级 pip（避免 Ubuntu pip-whl CVE）
+# Step 4: 切换到非 root 用户进行后续操作
+USER appuser
+
+# Step 5: 升级 pip（以非 root 用户身份）
 RUN pip install --upgrade pip setuptools wheel
 
-# 删除高危 pip-whl（但不能删 gpgv）
-RUN apt-get update && apt-get remove -y python3-pip-whl \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
-
+# Step 6: 创建工作目录
 WORKDIR /app
 
-COPY requirements.txt .
+# Step 7: 安装依赖
+COPY --chown=appuser:appgroup requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Step 8: 复制应用代码
+COPY --chown=appuser:appgroup . .
 
-# Step 3: 删除构建依赖（不能删系统核心依赖）
-RUN apt-get remove -y \
+# Step 9: 清理（需要切换回 root）
+USER root
+RUN apt-get update && apt-get remove -y \
+    python3-pip-whl \
     build-essential \
     gcc \
     g++ \
@@ -44,6 +53,9 @@ RUN apt-get remove -y \
     /usr/share/doc/* \
     /tmp/* \
     /var/tmp/*
+
+# Step 10: 最终切换回非 root 用户
+USER appuser
 
 EXPOSE 8000
 
